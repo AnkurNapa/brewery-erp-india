@@ -7,7 +7,7 @@
   --blue: #007aff; --green: #34c759; --orange: #ff9500; --red: #ff3b30; --indigo: #5856d6; --teal: #30b0c7;
   --blue-t: rgba(0, 122, 255, .12); --green-t: rgba(52, 199, 89, .15); --orange-t: rgba(255, 149, 0, .15); --red-t: rgba(255, 59, 48, .12);
   --beer: #f5b041; --steel: #aeaeb2; --side: rgba(246, 246, 248, .82); --bar: rgba(249, 249, 249, .86);
-  --grad: linear-gradient(135deg, #007aff, #34c759);
+  --grad: linear-gradient(135deg, #007aff, #34c759); --wa: #0b7a3e; --wa-ink: #0b7a3e;
   --r: 14px; --r-sm: 10px; --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px -12px rgba(0, 0, 0, .14);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
   color-scheme: light dark;
@@ -16,6 +16,7 @@
   :root {
     --bg: #000; --card: #1c1c1e; --card2: #2c2c2e; --fill: rgba(118, 118, 128, .24); --fill2: rgba(118, 118, 128, .16);
     --ink: #fff; --text: #f2f2f7; --muted: rgba(235, 235, 245, .6); --line: rgba(84, 84, 88, .55);
+    --wa-ink: #30d158;
     --blue: #0a84ff; --green: #30d158; --orange: #ff9f0a; --red: #ff453a; --indigo: #5e5ce6; --teal: #40c8e0;
     --blue-t: rgba(10, 132, 255, .2); --green-t: rgba(48, 209, 88, .2); --orange-t: rgba(255, 159, 10, .2); --red-t: rgba(255, 69, 58, .2);
     --steel: #636366; --side: rgba(28, 28, 30, .82); --bar: rgba(22, 22, 24, .86); --shadow: none;
@@ -245,6 +246,11 @@ table.compare tr.sec td { font-size: 12px; font-weight: 700; text-transform: upp
 #side a.maker-btn { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 8px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--fill); color: var(--blue); }
 #side a.maker-btn.primary-soft { background: var(--blue); color: #fff; }
 #side a.maker-btn:hover { filter: brightness(1.05); }
+/* WhatsApp buttons wear WhatsApp green with the chat glyph so they read as WhatsApp at a glance. */
+a.wa { white-space: nowrap; }
+a.wa.primary, #side a.maker-btn.wa { background: var(--wa); color: #fff; }
+a.wa.ghost { color: var(--wa-ink); }
+.wa-ico { width: 17px; height: 17px; flex: none; }
 .in { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; background: #0a66c2; color: #fff; font: 700 10px/1 var(--font); }
 .maker-note { margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
 .maker-hero { display: flex; gap: 20px; align-items: flex-start; }

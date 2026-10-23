@@ -7,7 +7,7 @@ export const head = (title, sub = '', btn = '') =>
 // Every "talk to me" button opens WhatsApp with the first line typed, so a brewer only adds their details.
 // data-wa names the button for analytics; the message text never goes there.
 export const waText = () => (n => (n ? `Hi Ankur, I'm from ${n}. Can you help us set up Brewhouse ERP?` : 'Hi Ankur, I run a brewery and would like help setting up Brewhouse ERP. Brewery name and city: '))(ownName());
-export const wa = (label, from, cls = 'primary') => `<a class="${cls}" href="https://wa.me/917755909445?text=${encodeURIComponent(waText())}" target="_blank" rel="noopener" data-wa="${from}">${label}</a>`;
+export const wa = (label, from, cls = 'primary') => `<a class="${cls} wa" href="https://wa.me/917755909445?text=${encodeURIComponent(waText())}" target="_blank" rel="noopener" data-wa="${from}"><svg class="wa-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 0 0-7.4 12.7L3.5 20.5l4.4-1.1A8.5 8.5 0 1 0 12 3.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 8.5c.3 2.9 2.6 5.3 5.5 6l1-1.2-1.7-1-.8.8a4.6 4.6 0 0 1-2.3-2.3l.8-.8-1-1.7z" fill="currentColor"/></svg>${label}</a>`;
 export const btn = (label, act, id = '', cls = 'primary') => `<button class="${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
 export const link = (label, act, id = '', cls = '') => `<button class="link ${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
 export const pill = (txt, cls = '') => `<span class="pill ${cls}">${esc(txt)}</span>`;
