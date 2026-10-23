@@ -741,6 +741,8 @@ test('46 leads: WhatsApp setup offer and a personal demo link', async ({ page })
   await page.goto('/?brewery=Toit#help');
   await expect(page.locator('#brand')).toHaveText('Toit');
   expect(decodeURIComponent(await page.locator('main a[data-wa="help"]').getAttribute('href'))).toContain("I'm from Toit");
+  await page.goto('/?brewery=' + encodeURIComponent('<img src=x onerror=alert(1)>Toit') + '#dash');
+  await expect(page.locator('#brand')).toHaveText('img srcx onerroralert1Toit');
   // A real brewery is never renamed by the link.
   await page.evaluate(async () => { const s = await import('/js/store.js'); s.startEmpty(); s.db.settings.name = 'Real Brew Co'; s.db.settings.gstin = '29AAAAA0000A1Z5'; s.commit(); });
   await page.goto('/?brewery=Toit#dash');

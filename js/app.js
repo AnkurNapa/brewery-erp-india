@@ -59,7 +59,8 @@ const reportView = () => setTimeout(() => { const v = route().view; analytics.pa
 load();
 analytics.init();
 // ?brewery=Toit puts a prospect's name on the demo for an outreach link. Only the demo is renamed, never a real brewery.
-const guest = new URLSearchParams(location.search).get('brewery')?.trim().slice(0, 40);
+// Letters, digits and plain name punctuation only: every render escapes it, this keeps any new screen safe too.
+const guest = (new URLSearchParams(location.search).get('brewery') || '').replace(/[^\p{L}\p{N} .&'-]/gu, '').trim().slice(0, 40);
 if (guest && isDemo()) { db.settings.name = guest; analytics.track('personal_demo'); }
 if (!analytics.consent()) $('consent').hidden = false;
 addEventListener('db', draw);
