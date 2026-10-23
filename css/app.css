@@ -31,8 +31,10 @@ button { font: inherit; cursor: pointer; color: inherit; }
 
 /* ---------- layout ---------- */
 #side { position: fixed; inset: 0 auto 0 0; width: 260px; padding: 20px 12px 32px; overflow-y: auto; background: var(--side); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-right: 1px solid var(--line); z-index: 20; }
-#side .logo { display: block; padding: 4px 12px 0; }
-.logo b { display: block; font-size: 26px; font-weight: 700; letter-spacing: -.03em; color: #e0a14a; }
+#side .logo { display: flex; align-items: center; gap: 10px; padding: 4px 10px 0; }
+#side .logo img { width: 38px; height: 38px; border-radius: 9px; box-shadow: 0 2px 6px rgba(220, 107, 28, .3); flex: none; }
+.logo-text { display: flex; flex-direction: column; line-height: 1.15; }
+.logo b { display: block; font-size: 22px; font-weight: 700; letter-spacing: -.03em; color: var(--ink); }
 .logo span { font-size: 12px; font-weight: 600; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .search { position: relative; margin: 0 4px 6px; }
 .search input { min-height: 36px; padding: 6px 12px; font-size: 15px; background: var(--fill); }
@@ -42,7 +44,10 @@ button { font: inherit; cursor: pointer; color: inherit; }
 #results .empty { padding: 6px 12px; font-size: 13px; }
 #side .brand { margin: 6px 12px 10px; font-size: 13px; color: var(--muted); }
 #side .group { margin: 18px 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-#side a:not(.logo) { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 6px 12px; border-radius: 8px; color: var(--text); font-weight: 500; transition: background-color .15s; }
+#side a:not(.logo) { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 12px; border-radius: 8px; color: var(--text); font-weight: 500; transition: background-color .15s; }
+#side a:not(.logo) .nav-label { flex: 1; }
+.ico { width: 20px; height: 20px; flex: none; fill: none; stroke: var(--blue); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; --icon-bg: var(--side); }
+#side a[aria-current] .ico { stroke: #fff; --icon-bg: var(--blue); }
 #side a:not(.logo):hover { background: var(--fill2); }
 #side a[aria-current] { background: var(--blue); color: #fff; }
 .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--red); color: #fff; font-size: 12px; font-weight: 600; display: inline-grid; place-items: center; }
@@ -297,7 +302,7 @@ label.wide { grid-column: 1 / -1; }
   body.menu .scrim { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .3); z-index: 15; }
   #tabbar { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; padding: 6px 0 calc(6px + env(safe-area-inset-bottom)); background: var(--bar); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-top: 1px solid var(--line); }
   #tabbar a, #tabbar button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 44px; font-size: 10px; font-weight: 500; color: var(--muted); background: none; border: 0; }
-  #tabbar svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; stroke-linecap: round; }
+  .tab-ico { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; stroke-linecap: round; --icon-bg: var(--bar); }
   #tabbar [aria-current] { color: var(--blue); }
   .head h1 { font-size: 30px; }
   .kpis, .kpis.four { grid-template-columns: 1fr 1fr; gap: 12px; } .kpi.hero { grid-column: span 2; }

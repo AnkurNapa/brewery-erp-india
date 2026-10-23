@@ -3,6 +3,7 @@ import { db, load, persist } from './store.js';
 import { esc, $ } from './util.js';
 import { alerts } from './calc.js';
 import * as analytics from './analytics.js';
+import { icon } from './icons.js';
 import * as home from './views/home.js';
 import * as brew from './views/brew.js';
 import * as stores from './views/stores.js';
@@ -28,18 +29,10 @@ const NAV = [
 ];
 const TABS = [['dash', 'Home'], ['tanks', 'Tanks'], ['batches', 'Batches'], ['sales', 'Sales']];
 // Simple line glyphs for the phone tab bar, drawn inline so there is no icon font to load.
-const ICON = {
-  dash: '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>',
-  tanks: '<path d="M7 3h10v12l-5 6-5-6z"/><path d="M7 9h10"/>',
-  batches: '<path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
-  sales: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
-  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
-};
 // Detail screens get an iOS style back button to their parent list.
 const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'], recipe: ['recipes', 'Recipes'], compare: ['recipes', 'Recipes'] };
 let depth = 0, prev = null, cur = null;
 const TITLES = Object.fromEntries(NAV.flatMap(([, items]) => items));
-const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
 
 function route() {
   const [view, ...rest] = location.hash.slice(1).split('/');
@@ -51,9 +44,9 @@ function draw() {
   const { view, arg } = route(), n = alerts().length;
   const active = { blr: 'batches', scan: 'equipment', count: 'stocktake', recipe: 'recipes', compare: 'recipes' }[view] || view;
   $('brand').textContent = db.settings.name;
-  $('sidenav').innerHTML = NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${t}${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
-  $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${svg(k)}<span>${t}</span></a>`).join('')
-    + `<button type="button" data-more ${!TABS.some(([k]) => k === active) ? 'aria-current="page"' : ''}>${svg('more')}<span>More</span></button>`;
+  $('sidenav').innerHTML = NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${icon(k)}<span class="nav-label">${t}</span>${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
+  $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${icon(k, 'tab-ico')}<span>${t}</span></a>`).join('')
+    + `<button type="button" data-more ${!TABS.some(([k]) => k === active) ? 'aria-current="page"' : ''}>${icon('more', 'tab-ico')}<span>More</span></button>`;
   if (view !== cur) { prev = cur; cur = view; }
   const up = PARENT[view] && (depth > 0 && TITLES[prev] ? [prev, TITLES[prev]] : PARENT[view]);
   $('main').innerHTML = (up ? `<button class="back" data-back="${up[0]}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>${up[1]}</button>` : '') + VIEWS[view](arg);

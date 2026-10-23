@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/header.png" alt="Brewhouse ERP: free brewery software for Indian microbreweries" width="100%"></p>
+
 # Brewhouse ERP
 
 A free, browser-based ERP for Indian microbreweries and brewpubs. Grain to glass in one place: recipes, stores, brewing, packaging, kegs, dispatch, taproom sales and the excise register.
