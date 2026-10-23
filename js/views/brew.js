@@ -1,6 +1,6 @@
 // Tanks, batches, batch lifecycle record, recipes and packaging.
 import { db, next, commit, consume, addLot, STATUSES, IN_TANK, LOSS_STAGES } from '../store.js';
-import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween } from '../util.js';
+import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween, sgFromP } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
 import { mat, rec, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
 
@@ -136,12 +136,13 @@ export const views = {
       const c = recipeCalc(r);
       return `<article class="card recipe"><div class="recipe-top"><span class="swatch" style="background:${srmHex(c.ebc)}"></span><div class="grow"><h3>${esc(r.name)}</h3><small>${esc(r.style)} · v${r.version}${r.updated ? ' · ' + fmtDate(r.updated) : ''}</small></div></div>
         <div class="metrics">${metric(sg(c.og), 'OG')}${metric(sg(c.fg), 'FG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.ebc, 0), 'EBC')}</div>
-        <div class="chain"><span><b>${num(c.pre, 0)} L</b>pre-boil</span><span><b>${num(c.post, 0)} L</b>post-boil</span><span><b>${num(c.size, 0)} L</b>fermenter</span><span><b>${num(c.sellable, 0)} L</b>sellable</span></div>
-        <p class="ingr">${r.items.map(i => `${esc(mat(i.id)?.name || '?')} ${num(i.qty, 2)} ${esc(mat(i.id)?.unit || '')}${i.time !== '' && mat(i.id)?.alpha ? ` @${i.time} min` : ''}`).join(' · ')}</p>
-        <div class="metrics">${metric(inr0(c.cost), 'batch cost')}${metric(inr(c.costL), 'per sellable litre')}</div>
-        <div class="card-foot">${link('Edit', 'editRec', r.id)}${r.history.length ? link(`History (${r.history.length})`, 'recHistory', r.id) : ''}${link('Delete', 'delRec', r.id, 'del')}</div></article>`;
+        <div class="chain"><span><b>${num(c.pre, 0)} L</b>pre-boil</span><span><b>${num(c.post, 0)} L</b>post-boil</span><span><b>${num(c.vFv, 0)} L</b>fermenter</span><span><b>${num(c.sellable, 0)} L</b>sellable</span></div>
+        <p class="ingr">${r.items.map(i => `${esc(mat(i.id)?.name || '?')} ${num(i.qty, 2)} ${esc(mat(i.id)?.unit || '')}${i.use === 'Boil' || i.use === 'Whirlpool' ? (i.time !== '' ? ` @${i.time} min` : '') + (i.use === 'Whirlpool' ? ' whirlpool' : '') : i.use === 'Dry hop' || i.use === 'Fermenter' ? ` (${i.use.toLowerCase()})` : ''}`).join(' · ')}</p>
+        ${c.warn.length ? `<p class="note bad">${esc(c.warn[0])}</p>` : ''}
+        <div class="metrics">${metric(inr0(c.cost), 'batch cost')}${metric(inr(c.costL), 'per sellable litre')}${metric(num(c.brewhouse, 0) + '%', 'brewhouse eff.')}</div>
+        <div class="card-foot">${link('Edit', 'editRec', r.id)}${link('Mass balance', 'recBalance', r.id)}${link('Duplicate', 'dupRec', r.id)}${link('Scale', 'scaleRec', r.id)}${r.history.length ? link(`History (${r.history.length})`, 'recHistory', r.id) : ''}${link('Delete', 'delRec', r.id, 'del')}</div></article>`;
     });
-    return head('Recipes', `Mass balance engine: gravity, colour, bitterness, ABV, volumes at each step and cost, from the grain bill at ${db.settings.efficiency || 72}% brewhouse efficiency.`, btn('New recipe', 'newRec'))
+    return head('Recipes', `Mass balance engine: extract, volume, Plato and gravity at every step from mash to sellable beer, with colour, bitterness, ABV and cost. Mash and lauter efficiency ${db.settings.efficiency || 72}%.`, btn('New recipe', 'newRec'))
       + (cards.length ? `<div class="cards">${cards.join('')}</div>` : '<p class="empty">No recipes yet.</p>');
   },
 
@@ -172,17 +173,47 @@ const BREW_FIELDS = [
 ];
 const REC_FIELDS = [
   { k: 'name', label: 'Beer name', req: 1 }, { k: 'style', label: 'Style' }, { k: 'size', label: 'Batch size into fermenter (L)', type: 'number' },
-  { k: 'boilLoss', label: 'Boil off (L)', type: 'number' }, { k: 'trubLoss', label: 'Kettle and trub loss (L)', type: 'number' }, { k: 'packLoss', label: 'Packaging loss (%)', type: 'number' },
+  { k: 'liquor', label: 'Mash thickness (L water per kg grain)', type: 'number' }, { k: 'boilLoss', label: 'Boil off (L)', type: 'number' },
+  { k: 'trubLoss', label: 'Kettle and trub loss (L)', type: 'number' }, { k: 'fermLoss', label: 'Yeast and trub loss in fermenter (L)', type: 'number' },
+  { k: 'packLoss', label: 'Packaging loss (%)', type: 'number' },
 ];
-const recLines = rows => ({
-  label: 'Ingredient', rows, opts: db.materials.map(m => ({ id: m.id, label: `${m.name} (${m.unit})` })),
-  cols: [{ k: 'qty', label: 'Qty' }, { k: 'time', label: 'Boil min' }],
-});
-const recPreview = (v, rows) => {
-  if (!v.size) return '';
-  const c = recipeCalc({ ...v, items: rows.map(r => ({ ...r, time: r.time === '' ? '' : +r.time })) });
-  return `<div class="metrics">${metric(sg(c.og), 'OG')}${metric(sg(c.fg), 'FG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.ebc, 0), 'EBC')}${metric(inr0(c.cost), 'cost')}${metric(inr(c.costL), 'per litre')}</div>`;
+const REC_DEFAULTS = { size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3 };
+// Which uses make sense for each kind of ingredient. Minutes only matter for hops in the boil or whirlpool.
+const USE_BY_TYPE = { Malt: ['Mash', 'Boil'], Hops: ['Boil', 'Whirlpool', 'Dry hop'], Yeast: ['Pitch'], Adjunct: ['Mash', 'Boil', 'Fermenter'], Other: ['Mash', 'Boil', 'Fermenter'] };
+const usesFor = id => USE_BY_TYPE[mat(id)?.type] || ['Mash'];
+const needsMinutes = (id, use) => mat(id)?.type === 'Hops' && ['Boil', 'Whirlpool'].includes(use);
+const useCell = (id, r) => {
+  const opts = usesFor(id), use = opts.includes(r.use) ? r.use : opts[0];
+  return opts.length === 1 ? `<span class="fixed-use">${use}</span><input type="hidden" name="l_use" value="${use}">`
+    : `<select name="l_use" aria-label="Use">${opts.map(o => `<option ${o === use ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
 };
+const timeCell = (id, r) => {
+  const use = usesFor(id).includes(r.use) ? r.use : usesFor(id)[0];
+  return needsMinutes(id, use) ? `<input name="l_time" type="number" step="any" min="0" aria-label="Minutes" value="${esc(r.time ?? (use === 'Whirlpool' ? 20 : 60))}">` : '<input type="hidden" name="l_time" value="">';
+};
+const recLines = rows => ({
+  label: 'Ingredient', rows,
+  opts: db.materials.filter(m => USE_BY_TYPE[m.type]).map(m => ({ id: m.id, label: `${m.name} (${m.unit})` })),
+  cols: [{ k: 'qty', label: 'Qty' }, { k: 'use', label: 'Use', text: 1, cell: useCell }, { k: 'time', label: 'Minutes', cell: timeCell }],
+  update(tr, target) {
+    const id = tr.querySelector('[name=l_id]').value, cell = k => tr.querySelector(`[data-col=${k}]`);
+    if (target.name === 'l_id') { cell('use').innerHTML = useCell(id, {}); cell('time').innerHTML = timeCell(id, {}); }
+    if (target.name === 'l_use') cell('time').innerHTML = timeCell(id, { use: target.value });
+  },
+});
+const asItems = rows => rows.map(r => ({ id: r.id, qty: r.qty, price: 0, use: r.use, time: needsMinutes(r.id, r.use) && r.time !== '' ? +r.time : '' }));
+export function massBalance(c) {
+  return table(['Step', { t: 'Litres', n: 1 }, { t: 'Extract kg', n: 1 }, { t: '°Plato', n: 1 }, { t: 'Gravity', n: 1 }, 'Notes'],
+    c.steps.map(x => `<tr><td>${x.step}</td><td class="n">${num(x.litres, 0)}</td><td class="n">${x.extract == null ? '' : num(x.extract, 1)}</td><td class="n">${x.plato ? num(x.plato, 1) : ''}</td><td class="n">${x.plato ? sg(sgFromP(x.plato)) : ''}</td><td><small class="sub">${esc(x.note)}</small></td></tr>`));
+}
+const recPreview = (v, rows) => {
+  if (!v.size) return '<p class="note">Enter a batch size to see the numbers.</p>';
+  const c = recipeCalc({ ...v, items: asItems(rows) });
+  return (c.warn.length ? `<ul class="list warn">${c.warn.map(w => `<li><i class="dot warn"></i>${esc(w)}</li>`).join('')}</ul>` : '')
+    + `<div class="metrics">${metric(sg(c.og), 'OG')}${metric(sg(c.fg), 'FG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.ebc, 0), 'EBC')}${metric(num(c.brewhouse, 0) + '%', 'brewhouse eff.')}${metric(inr0(c.cost), 'cost')}${metric(inr(c.costL), 'per litre')}</div>`
+    + `<h3 class="mb-title">Mass balance</h3>${massBalance(c)}<p class="note">Strike water ${num(c.mashWater, 0)} L, sparge ${num(c.sparge, 0)} L. Mash and lauter efficiency ${db.settings.efficiency || 72}% (Settings).</p>`;
+};
+const snapOf = r => ({ name: r.name, style: r.style, size: r.size, boilLoss: r.boilLoss, trubLoss: r.trubLoss, fermLoss: r.fermLoss, packLoss: r.packLoss, liquor: r.liquor, items: r.items });
 const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 
 export const actions = {
@@ -240,22 +271,53 @@ export const actions = {
   printBlr() { document.getElementById('print').innerHTML = document.getElementById('main').innerHTML; window.print(); },
 
   newRec() {
-    openForm({ title: 'New recipe', fields: REC_FIELDS, vals: { size: 500, boilLoss: 40, trubLoss: 20, packLoss: 3 }, lines: recLines([]), live: recPreview,
-      onSave: (v, items) => { db.recipes.push({ id: uid(), ...v, items: items.map(i => ({ ...i, price: 0 })), version: 1, updated: today(), history: [] }); } });
+    openForm({ title: 'New recipe', fields: REC_FIELDS, vals: REC_DEFAULTS, lines: recLines([]), live: recPreview,
+      onSave: (v, items) => { if (!items.length) { toast('Add at least one ingredient'); return false; } db.recipes.push({ id: uid(), ...v, items: asItems(items), version: 1, updated: today(), history: [] }); } });
   },
   editRec(id) {
     const r = rec(id);
-    openForm({ title: `Edit ${r.name}`, fields: REC_FIELDS, vals: r, lines: recLines(r.items), live: recPreview, note: 'Saving creates a new version. Earlier versions stay in the history and on the batches that used them.',
+    openForm({ title: `Edit ${r.name}`, fields: REC_FIELDS, vals: r, lines: recLines(r.items), live: recPreview,
+      note: 'Saving creates a new version. Earlier versions stay in the history and on the batches that used them.',
       onSave: (v, items) => {
-        r.history.push({ version: r.version, date: r.updated || today(), snap: { name: r.name, style: r.style, size: r.size, items: r.items } });
-        Object.assign(r, v, { items: items.map(i => ({ ...i, price: 0 })), version: r.version + 1, updated: today() });
+        if (!items.length) { toast('Add at least one ingredient'); return false; }
+        r.history.push({ version: r.version, date: r.updated || today(), snap: snapOf(r) });
+        Object.assign(r, v, { items: asItems(items), version: r.version + 1, updated: today() });
         toast(`${r.name} saved as v${r.version}`);
       } });
+  },
+  dupRec(id) {
+    const r = rec(id);
+    db.recipes.push({ ...JSON.parse(JSON.stringify(snapOf(r))), id: uid(), name: `${r.name} copy`, version: 1, updated: today(), history: [] });
+    toast(`${r.name} copied`);
+    commit();
+  },
+  scaleRec(id) {
+    const r = rec(id);
+    openForm({ title: `Scale ${r.name}`, vals: { size: r.size }, fields: [{ k: 'size', label: 'New batch size into fermenter (L)', type: 'number', req: 1 }],
+      note: 'Ingredients and losses scale in proportion. Mash thickness and packaging loss % stay the same. This saves a new version.',
+      onSave: v => {
+        if (!(v.size > 0)) { toast('Enter a batch size'); return false; }
+        const k = v.size / (r.size || 1);
+        r.history.push({ version: r.version, date: r.updated || today(), snap: snapOf(r) });
+        Object.assign(r, { size: v.size, boilLoss: +(r.boilLoss * k).toFixed(1), trubLoss: +(r.trubLoss * k).toFixed(1), fermLoss: +(r.fermLoss * k).toFixed(1), items: r.items.map(i => ({ ...i, qty: +(i.qty * k).toFixed(3) })), version: r.version + 1, updated: today() });
+        toast(`${r.name} scaled to ${num(v.size)} L as v${r.version}`);
+      } });
+  },
+  recBalance(id) {
+    const r = rec(id), c = recipeCalc(r), m = document.getElementById('modal');
+    m.innerHTML = `<div class="sheet"><div class="grabber"></div><div class="sheet-head"><span></span><h2>${esc(r.name)} mass balance</h2><button class="link strong" data-close>Done</button></div><div class="sheet-body">
+      ${massBalance(c)}<p class="note">Strike water ${num(c.mashWater, 0)} L, sparge ${num(c.sparge, 0)} L, brewhouse efficiency ${num(c.brewhouse, 0)}%. Extract kg = litres × gravity × °Plato ÷ 100, solved at every step.</p></div></div>`;
+    m.querySelector('[data-close]').onclick = () => m.close();
+    m.showModal();
   },
   recHistory(id) {
     const r = rec(id), m = document.getElementById('modal');
     m.innerHTML = `<div class="sheet"><div class="grabber"></div><div class="sheet-head"><span></span><h2>${esc(r.name)} history</h2><button class="link strong" data-close>Done</button></div><div class="sheet-body">
-      ${[...r.history].reverse().map(h => `<h3>v${h.version} · ${fmtDate(h.date)}</h3><p class="ingr">${h.snap.items.map(i => `${esc(mat(i.id)?.name || '?')} ${num(i.qty, 2)}`).join(' · ')}</p>`).join('')}</div></div>`;
+      ${[{ version: r.version, date: r.updated, snap: snapOf(r), now: 1 }, ...[...r.history].reverse()].map(h => {
+        const c = recipeCalc({ ...REC_DEFAULTS, ...h.snap });
+        return `<h3>v${h.version}${h.now ? ' (current)' : ''} · ${fmtDate(h.date)}</h3><div class="metrics">${metric(sg(c.og), 'OG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.sellable, 0) + ' L', 'sellable')}${metric(inr(c.costL), 'per litre')}</div>
+          <p class="ingr">${h.snap.items.map(i => `${esc(mat(i.id)?.name || '?')} ${num(i.qty, 2)}${i.time !== '' ? ` @${i.time} min` : ''}`).join(' · ')}</p>`;
+      }).join('')}</div></div>`;
     m.querySelector('[data-close]').onclick = () => m.close();
     m.showModal();
   },

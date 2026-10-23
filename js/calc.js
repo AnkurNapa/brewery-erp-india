@@ -1,35 +1,62 @@
 // Lookups and every number the screens show: recipe engine, stock, MRP,
 // planning, COGS and notifications.
 import { db, IN_TANK } from './store.js';
-import { sum, abv, today, daysAgo, daysBetween, addDays, fmtDate } from './util.js';
+import { sum, abv, today, daysAgo, daysBetween, addDays, fmtDate, platoOf, sgFromP, pFromSg } from './util.js';
 
 const by = coll => id => db[coll].find(x => x.id === id);
 export const mat = by('materials'), rec = by('recipes'), prod = by('products'), tank = by('tanks'), keg = by('kegs');
 export const batch = by('batches'), cust = by('customers'), vendor = by('vendors'), pack = by('packs');
 
 // ---------- recipe engine ----------
-// Extract is in gravity points per kg per litre (pale malt ~309, i.e. 37 PPG).
-// IBU uses Tinseth, colour uses Morey, FG uses the yeast's attenuation.
+// Mass balance: extract kg is carried step by step and Plato is solved from
+// extract mass and volume at each step. Malt extract is % as is, from the
+// malt analysis. Mash and lauter efficiency comes from Settings. IBU uses
+// Tinseth, colour uses Morey, FG uses the yeast's apparent attenuation.
+export const WHIRLPOOL_FACTOR = 0.5; // whirlpool hops isomerise at roughly half boil utilisation
 export function recipeCalc(r) {
-  const eff = (db.settings.efficiency || 72) / 100;
-  const post = r.size + r.trubLoss, pre = post + r.boilLoss, sellable = r.size * (1 - r.packLoss / 100);
-  let extract = 0, mcu = 0, atten = 0, cost = 0, grain = 0;
-  for (const i of r.items) {
-    const m = mat(i.id);
-    if (!m) continue;
-    cost += i.qty * m.cost;
-    if (m.extract) { extract += i.qty * m.extract; grain += i.qty; }
-    if (m.ebc) mcu += i.qty * 2.20462 * (m.ebc / 1.97) / (post / 3.78541);
-    if (m.atten) atten = Math.max(atten, m.atten);
-  }
-  const og = 1 + extract * eff / (post || 1) / 1000;
+  const st = db.settings, eff = (st.efficiency || 72) / 100, absorb = st.grainAbsorb || 1, dryAbs = st.dryHopAbsorb || 5;
+  const size = r.size || 0, post = size + (r.trubLoss || 0), pre = post + (r.boilLoss || 0);
+  const lines = r.items.map(i => ({ ...i, m: mat(i.id) })).filter(i => i.m);
+  const at = use => lines.filter(i => i.use === use);
+  const ext = i => i.qty * (i.m.extract || 0) / 100;
+  const grain = sum(at('Mash').filter(i => i.m.type === 'Malt'), i => i.qty);
+  const potential = sum(at('Mash'), ext), boilExt = sum(at('Boil'), ext), fvExt = sum(at('Fermenter'), ext);
+  const fvLitres = sum(at('Fermenter').filter(i => /^l/i.test(i.m.unit)), i => i.qty);
+  const mashWater = grain * (r.liquor || 2.8), sparge = Math.max(0, pre - (mashWater - grain * absorb));
+  const kettleExt = potential * eff, postExt = kettleExt + boilExt;
+  const pPre = platoOf(kettleExt, pre), pPost = platoOf(postExt, post);
+  const intoFvExt = postExt * (size / (post || 1)) + fvExt, vFv = size + fvLitres, pFv = platoOf(intoFvExt, vFv);
+  const og = sgFromP(pFv), boilSg = sgFromP(pPost);
+  const atten = Math.max(0, ...at('Pitch').map(i => i.m.atten || 0)) || 75;
+  const fg = 1 + (og - 1) * (1 - atten / 100);
   let ibu = 0;
-  for (const i of r.items) {
-    const m = mat(i.id);
-    if (m?.alpha && +i.time > 0) ibu += 1.65 * 0.000125 ** (og - 1) * (1 - Math.exp(-0.04 * i.time)) / 4.15 * (m.alpha / 100) * i.qty * 1e6 / (post || 1);
+  for (const i of lines.filter(i => i.m.alpha && ['Boil', 'Whirlpool'].includes(i.use) && +i.time > 0)) {
+    const util = 1.65 * 0.000125 ** (boilSg - 1) * (1 - Math.exp(-0.04 * i.time)) / 4.15 * (i.use === 'Whirlpool' ? WHIRLPOOL_FACTOR : 1);
+    ibu += util * (i.m.alpha / 100) * i.qty * 1e6 / (post || 1);
   }
-  const fg = 1 + (og - 1) * (1 - (atten || 75) / 100);
-  return { og, fg, abv: abv(og, fg), ibu, ebc: 1.4922 * mcu ** 0.6859 * 1.97, pre, post, size: r.size, sellable, cost, costL: cost / (sellable || 1), extract, grain };
+  ibu *= size / (vFv || 1);
+  const mcu = 8.345 * sum(lines.filter(i => i.m.ebc), i => i.qty * i.m.ebc / 1.97) / (vFv || 1);
+  const dryKg = sum(at('Dry hop'), i => i.qty), fermLoss = r.fermLoss || 0;
+  const bright = Math.max(0, vFv - fermLoss - dryKg * dryAbs), sellable = bright * (1 - (r.packLoss || 0) / 100);
+  const cost = sum(lines, i => i.qty * i.m.cost);
+  const warn = [];
+  if (!potential && !boilExt && !fvExt) warn.push('No fermentable has an extract value, so gravity cannot be worked out.');
+  for (const i of lines.filter(i => i.m.type === 'Malt' && !i.m.extract)) warn.push(`${i.m.name} has no extract % set.`);
+  for (const i of lines.filter(i => ['Boil', 'Whirlpool'].includes(i.use) && i.m.type === 'Hops' && !i.m.alpha)) warn.push(`${i.m.name} has no alpha acid set, so it adds no bitterness.`);
+  if (!at('Pitch').length) warn.push('No yeast: FG assumes 75% attenuation.');
+  if (grain && mashWater - grain * absorb > pre) warn.push('Mash water alone is more than the pre-boil volume. Use a thicker mash or a bigger batch.');
+  const steps = [
+    { step: 'Mash', litres: mashWater, extract: potential, note: grain ? `${grain.toFixed(1)} kg grain at ${(r.liquor || 2.8).toFixed(1)} L/kg` : '' },
+    { step: 'Kettle, pre-boil', litres: pre, extract: kettleExt, plato: pPre, note: `Sparge ${sparge.toFixed(0)} L` },
+    { step: 'End of boil', litres: post, extract: postExt, plato: pPost, note: `Boil off ${(r.boilLoss || 0).toFixed(0)} L` },
+    { step: 'Into fermenter', litres: vFv, extract: intoFvExt, plato: pFv, note: `Kettle loss ${(r.trubLoss || 0).toFixed(0)} L` },
+    { step: 'Bright beer', litres: bright, plato: pFromSg(fg), note: `Yeast and trub ${fermLoss.toFixed(0)} L${dryKg ? `, dry hop ${(dryKg * dryAbs).toFixed(0)} L` : ''}` },
+    { step: 'Sellable', litres: sellable, note: `Packaging ${(r.packLoss || 0)}%` },
+  ];
+  return {
+    og, fg, abv: abv(og, fg), ibu, ebc: 1.4922 * mcu ** 0.6859 * 1.97, pre, post, size, vFv, bright, sellable, cost, costL: cost / (sellable || 1),
+    extract: potential, grain, mashWater, sparge, brewhouse: potential ? (intoFvExt - fvExt) / potential * 100 : 0, steps, warn,
+  };
 }
 
 // ---------- batches ----------
@@ -61,11 +88,12 @@ export function deviations(b) {
 }
 
 // Brewhouse efficiency: extract actually collected against the grain's potential.
+// Brewhouse efficiency: extract that reached the fermenter against the grain's potential.
 export function efficiency(b) {
   const r = rec(b.recipeId), og = +b.brew.og || b.og;
   if (!r || !og) return 0;
-  const potential = recipeCalc(r).extract * b.volume / (r.size || 1);
-  return potential ? (og - 1) * 1000 * (b.volume + r.trubLoss) / potential * 100 : 0;
+  const potential = recipeCalc(r).extract * b.volume / (r.size || 1), p = pFromSg(og);
+  return potential ? b.volume * sgFromP(p) * p / 100 / potential * 100 : 0;
 }
 
 // ---------- stock ----------

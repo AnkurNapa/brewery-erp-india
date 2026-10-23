@@ -75,7 +75,7 @@ const MAT_FIELDS = (edit = false) => [
   { k: 'unit', label: 'Unit (kg, pack, L)' }, { k: 'qty', label: edit ? 'On hand' : 'Opening stock', type: 'number', ro: edit }, { k: 'reorder', label: 'Reorder at (PAR)', type: 'number' },
   { k: 'cost', label: 'Cost per unit (₹)', type: 'number' }, { k: 'vendorId', label: 'Vendor', type: 'select', options: vendorOpts() },
   ...(edit ? [] : [{ k: 'expiry', label: 'Expiry of opening stock', type: 'date' }]),
-  { k: 'extract', label: 'Malt extract (points/kg/L)', type: 'number' }, { k: 'ebc', label: 'Malt colour (EBC)', type: 'number' },
+  { k: 'extract', label: 'Extract, % as is (malt analysis or sugar)', type: 'number' }, { k: 'ebc', label: 'Malt colour (EBC)', type: 'number' },
   { k: 'alpha', label: 'Hop alpha acid (%)', type: 'number' }, { k: 'atten', label: 'Yeast attenuation (%)', type: 'number' },
 ];
 const PO_LINES = rows => ({ label: 'Material', rows, opts: db.materials.map(m => ({ id: m.id, label: `${m.name} (${m.unit})` })), cols: [{ k: 'qty', label: 'Qty' }, { k: 'price', label: 'Rate ₹', def: id => mat(id)?.cost ?? 0 }] });

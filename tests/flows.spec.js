@@ -256,3 +256,41 @@ test('22 help: every role has linked steps', async ({ page }) => {
     expect(await page.locator('.help-step').count()).toBeGreaterThan(0);
   }
 });
+
+test('23 recipe editor: minutes only for boil and whirlpool hops', async ({ page }) => {
+  await fresh(page, 'recipes');
+  await page.locator('[data-act="editRec"]').first().click();
+  const rows = page.locator('#modal .lines tbody tr');
+  await expect(rows.nth(0).locator('input[name="l_time"]')).toHaveAttribute('type', 'hidden');
+  await expect(rows.nth(2).locator('input[name="l_time"]')).toHaveAttribute('type', 'number');
+  await rows.nth(2).locator('select[name="l_use"]').selectOption('Dry hop');
+  await expect(rows.nth(2).locator('input[name="l_time"]')).toHaveAttribute('type', 'hidden');
+  await rows.nth(2).locator('select[name="l_use"]').selectOption('Whirlpool');
+  await expect(rows.nth(2).locator('input[name="l_time"]')).toHaveValue('20');
+  await expect(rows.nth(5).locator('.fixed-use')).toHaveText('Pitch');
+});
+
+test('24 mass balance: extract closes at every step, dry hop adds no IBU', async ({ page }) => {
+  await fresh(page, 'recipes');
+  const r = await run(page, async () => {
+    const s = await import('/js/store.js'), c = await import('/js/calc.js'), u = await import('/js/util.js');
+    const ipa = s.db.recipes[0], x = c.recipeCalc(ipa);
+    const closes = x.steps.filter(st => st.plato && st.extract != null).every(st => Math.abs(st.litres * u.sgFromP(st.plato) * st.plato / 100 - st.extract) < 0.05);
+    const noDry = c.recipeCalc({ ...ipa, items: ipa.items.filter(i => i.use !== 'Dry hop') });
+    return { closes, sameIbu: Math.abs(noDry.ibu - x.ibu) < 1e-9, og: +x.og.toFixed(3), bright: Math.round(x.bright) };
+  });
+  expect(r).toEqual({ closes: true, sameIbu: true, og: 1.059, bright: 478 });
+});
+
+test('25 old data: extract points and malt minutes migrate', async ({ page }) => {
+  await fresh(page, 'recipes');
+  const r = await run(page, async () => {
+    const s = await import('/js/store.js'), old = JSON.parse(JSON.stringify(s.db));
+    old.materials[0].extract = 309;
+    old.recipes[0].items.forEach(i => { delete i.use; });
+    old.recipes[0].items[0].time = 60;
+    const d = s.clean(old);
+    return { extract: d.materials[0].extract, malt: d.recipes[0].items[0].use + ':' + d.recipes[0].items[0].time, hop: d.recipes[0].items[2].use };
+  });
+  expect(r).toEqual({ extract: 80.3, malt: 'Mash:', hop: 'Boil' });
+});

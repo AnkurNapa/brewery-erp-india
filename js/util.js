@@ -8,7 +8,18 @@ export const daysAgo = d => addDays(today(), -d);
 export const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
 export const pad = (n, w) => String(n).padStart(w, '0');
 export const sum = (arr, f = x => x) => arr.reduce((a, x) => a + (+f(x) || 0), 0);
-export const abv = (og, fg) => (og - fg) * 131.25;
+// ABV from gravities (Hall's formula, closer than 131.25 x difference at higher gravities).
+export const abv = (og, fg) => (og > fg && fg > 0 ? 76.08 * (og - fg) / (1.775 - og) * (fg / 0.794) : 0);
+// Plato and specific gravity at 20 C.
+export const sgFromP = p => 1 + p / (258.6 - (p / 258.2) * 227.1);
+export const pFromSg = sg => (sg > 1 ? -616.868 + 1111.14 * sg - 630.272 * sg * sg + 135.997 * sg ** 3 : 0);
+// Solve extract kg = litres x SG x Plato / 100 for Plato.
+export function platoOf(extractKg, litres) {
+  if (!(extractKg > 0) || !(litres > 0)) return 0;
+  let p = 10;
+  for (let i = 0; i < 10; i++) p = 100 * extractKg / (litres * sgFromP(p));
+  return p;
+}
 export const $ = id => document.getElementById(id);
 
 export const inr = n => '₹' + (+n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

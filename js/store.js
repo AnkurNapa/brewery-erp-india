@@ -25,14 +25,15 @@ const obj = schema => x => { const o = {}; for (const k in schema) o[k] = schema
 const LIST = schema => v => (Array.isArray(v) ? v.map(obj(schema)) : []);
 const IDS = v => (Array.isArray(v) ? v.map(ID) : []);
 
-const LINE = { id: ID, qty: NUM, price: NUM, time: OPT };
-const RSNAP = { name: STR, style: STR, size: NUM, items: LIST(LINE) };
+export const USES = ['Mash', 'Boil', 'Whirlpool', 'Dry hop', 'Pitch', 'Fermenter'];
+const LINE = { id: ID, qty: NUM, price: NUM, time: OPT, use: ONE(['', ...USES]) };
+const RSNAP = { name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, items: LIST(LINE) };
 const SCHEMA = {
   materials: {
     id: ID, name: STR, type: STR, unit: STR, qty: NUM, reorder: NUM, cost: NUM, extract: NUM, ebc: NUM, alpha: NUM, atten: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), vendorId: ID,
     lots: LIST({ id: ID, date: DATE, qty: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), cost: NUM, ref: STR }),
   },
-  recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, packLoss: NUM, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
+  recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
   products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM },
   tanks: { id: ID, name: STR, type: STR, capacity: NUM, hygiene: ONE(HYGIENE), cleanedOn: DATE },
   batches: {
@@ -58,7 +59,7 @@ const SCHEMA = {
   counts: { id: ID, no: STR, date: DATE, status: ONE(['Open', 'Posted']), lines: LIST({ ref: REF, label: STR, unit: STR, system: NUM, counted: OPT, cost: NUM, reason: STR }) },
   adjustments: { id: ID, date: DATE, countId: ID, ref: REF, label: STR, delta: NUM, value: NUM, reason: STR },
 };
-const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, lastBackup: DATE };
+const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, lastBackup: DATE };
 const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM };
 
 export function clean(d) {
@@ -69,7 +70,22 @@ export function clean(d) {
   for (const m of out.materials) {
     if (!m.lots.length && m.qty) m.lots.push({ id: 'l' + m.id, date: '', qty: m.qty, expiry: m.expiry, qc: m.qc, cost: m.cost, ref: 'Opening stock' });
     m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
+    // Extract used to be gravity points per kg per litre (pale malt ~309). It is now % as is.
+    if (m.extract > 100) m.extract = +(m.extract / 3.846).toFixed(1);
   }
+  // Give every recipe line a use. Keep minutes only where they mean something.
+  const typeOf = id => out.materials.find(m => m.id === id)?.type;
+  const fixLine = i => {
+    const t = typeOf(i.id);
+    if (!i.use) i.use = t === 'Hops' ? (i.time === '' ? 'Dry hop' : i.time === 0 ? 'Whirlpool' : 'Boil') : t === 'Yeast' ? 'Pitch' : t === 'Adjunct' && i.time !== '' ? 'Boil' : 'Mash';
+    if (!(t === 'Hops' && ['Boil', 'Whirlpool'].includes(i.use))) i.time = '';
+  };
+  out.recipes.forEach((r, i) => {
+    r.items.forEach(fixLine);
+    r.history.forEach(h => h.snap.items.forEach(fixLine));
+    if (d?.recipes?.[i]?.fermLoss == null) r.fermLoss = +(r.size * 0.03).toFixed(1);
+    r.liquor ||= 2.8;
+  });
   return out;
 }
 export const isBackup = d => d && typeof d === 'object' && d.settings && Array.isArray(d.batches);

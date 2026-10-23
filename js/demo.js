@@ -13,10 +13,10 @@ export function demo() {
   const [vMalt, vHops, vYeast, vGas] = vendors.map(v => v.id);
   const m = (name, type, unit, qty, reorder, cost, spec = {}) => ({ id: uid(), name, type, unit, qty, reorder, cost, extract: 0, ebc: 0, alpha: 0, atten: 0, expiry: '', qc: 'Approved', vendorId: '', ...spec });
   const materials = [
-    m('Pale malt', 'Malt', 'kg', 620, 200, 65, { extract: 309, ebc: 6, vendorId: vMalt, expiry: ahead(240) }),
-    m('Wheat malt', 'Malt', 'kg', 180, 60, 80, { extract: 317, ebc: 4, vendorId: vMalt, expiry: ahead(200) }),
-    m('Munich malt', 'Malt', 'kg', 90, 40, 90, { extract: 292, ebc: 20, vendorId: vMalt, expiry: ahead(260), lots: [{ id: uid(), date: daysAgo(40), qty: 60, expiry: ahead(200), qc: 'Approved', cost: 90, ref: 'PO-0000' }, { id: uid(), date: daysAgo(1), qty: 30, expiry: ahead(260), qc: 'Pending', cost: 90, ref: 'Direct receipt' }] }),
-    m('Crystal 60', 'Malt', 'kg', 30, 20, 110, { extract: 284, ebc: 120, vendorId: vMalt, expiry: ahead(180) }),
+    m('Pale malt', 'Malt', 'kg', 620, 200, 65, { extract: 80.5, ebc: 6, vendorId: vMalt, expiry: ahead(240) }),
+    m('Wheat malt', 'Malt', 'kg', 180, 60, 80, { extract: 82.5, ebc: 4, vendorId: vMalt, expiry: ahead(200) }),
+    m('Munich malt', 'Malt', 'kg', 90, 40, 90, { extract: 76, ebc: 20, vendorId: vMalt, expiry: ahead(260), lots: [{ id: uid(), date: daysAgo(40), qty: 60, expiry: ahead(200), qc: 'Approved', cost: 90, ref: 'PO-0000' }, { id: uid(), date: daysAgo(1), qty: 30, expiry: ahead(260), qc: 'Pending', cost: 90, ref: 'Direct receipt' }] }),
+    m('Crystal 60', 'Malt', 'kg', 30, 20, 110, { extract: 74, ebc: 120, vendorId: vMalt, expiry: ahead(180) }),
     m('Cascade', 'Hops', 'kg', 6, 5, 3200, { alpha: 6.5, vendorId: vHops, expiry: ahead(300) }),
     m('Citra', 'Hops', 'kg', 2, 3, 5200, { alpha: 12, vendorId: vHops, expiry: ahead(280) }),
     m('Saaz', 'Hops', 'kg', 4, 2, 2800, { alpha: 3.5, vendorId: vHops, expiry: ahead(320) }),
@@ -32,12 +32,12 @@ export function demo() {
   ];
   const M = n => materials.find(x => x.name.startsWith(n)).id;
   const r = (name, style, items, version = 1, history = []) => ({
-    id: uid(), name, style, size: 500, boilLoss: 40, trubLoss: 20, packLoss: 3, version, updated: daysAgo(40), history,
-    items: items.map(([n, qty, time = '']) => ({ id: M(n), qty, price: 0, time })),
+    id: uid(), name, style, size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3, version, updated: daysAgo(40), history,
+    items: items.map(([n, qty, time = '', use = '']) => ({ id: M(n), qty, price: 0, time, use })),
   });
-  const ipaItems = [['Pale malt', 130], ['Crystal 60', 8], ['Cascade', 1.5, 60], ['Cascade', 1.5, 10], ['Citra', 1.5, 0], ['US-05', 1]];
+  const ipaItems = [['Pale malt', 130], ['Crystal 60', 8], ['Cascade', 1.5, 60], ['Cascade', 1.5, 10], ['Citra', 1.5, '', 'Dry hop'], ['US-05', 1]];
   const recipes = [
-    r('Indiranagar IPA', 'American IPA', ipaItems, 2, [{ version: 1, date: daysAgo(90), snap: { name: 'Indiranagar IPA', style: 'American IPA', size: 500, items: ipaItems.map(([n, qty, time = '']) => ({ id: M(n), qty: n === 'Crystal 60' ? 10 : qty, price: 0, time })) } }]),
+    r('Indiranagar IPA', 'American IPA', ipaItems, 2, [{ version: 1, date: daysAgo(90), snap: { name: 'Indiranagar IPA', style: 'American IPA', size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3, items: ipaItems.map(([n, qty, time = '', use = '']) => ({ id: M(n), qty: n === 'Crystal 60' ? 10 : qty, price: 0, time, use })) } }]),
     r('Monsoon Wit', 'Witbier', [['Pale malt', 55], ['Wheat malt', 55], ['Saaz', 1, 60], ['Coriander', 0.5, 5], ['Orange peel', 0.5, 5], ['WB-06', 1]]),
     r('Helles Lager', 'Munich Helles', [['Pale malt', 100], ['Munich malt', 20], ['Saaz', 1.5, 60], ['Saaz', 1, 15], ['W-34/70', 2]]),
   ];
@@ -119,7 +119,7 @@ export function demo() {
   });
 
   return {
-    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, lastBackup: daysAgo(2) },
+    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, lastBackup: daysAgo(2) },
     seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13, count: 2 },
     materials, recipes, products, tanks, batches, sales, kegs, customers, vendors, packs, dispatches,
     equipment: [

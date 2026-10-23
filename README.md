@@ -16,7 +16,7 @@ It opens with a demo brewpub loaded. Use **Settings > Start empty** when you are
 
 **Stores.** On hand, reserved for planned batches and available stock. Reorder levels, expiry dates and QC approval on receipt. Material wastage. MRP suggests orders and raises purchase orders per vendor. Receiving a PO adds the stock and holds it for QC.
 
-**Recipes.** A mass balance engine: OG, FG, ABV, IBU (Tinseth), colour (Morey, in EBC), volumes at each step (pre-boil, post-boil, fermenter, sellable) and ingredient cost per batch and per sellable litre, recalculated as you build. Every edit saves a new version and batches remember the version they used.
+**Recipes.** A mass balance engine. Extract kg is carried from the grain bill through mash, kettle, boil, fermenter and bright beer to sellable litres. Plato is solved from extract mass and volume at every step (extract kg = litres x gravity x °Plato / 100). Malt extract is entered as % as is, straight from the malt analysis. It also works out strike and sparge water, brewhouse efficiency, OG, FG, ABV (Hall's formula), IBU (Tinseth, with whirlpool hops at half utilisation and dry hops at none), colour (Morey, in EBC), dry hop absorption and cost per sellable litre, all live as you type. Each ingredient gets a use that fits it. Malt goes in the mash. Hops go in the boil, the whirlpool or the dry hop. Yeast is pitched. Adjuncts go in the mash, boil or fermenter, which covers fruit beer, cider and seltzer. Recipes can be duplicated and scaled. Every edit saves a full new version. Batches remember the version they used.
 
 **Production.** Batches move from Planned to Brewing, Fermenting, Conditioning, Ready and Sold out. Ingredients are issued when a batch leaves Planned. A step by step brew log captures mash temperature, gravities, volume and pitch temperature. Anything outside tolerance is flagged. Fermentation readings (gravity, temperature, pH) draw a curve per tank.
 
@@ -59,6 +59,8 @@ Clean white cards in the spirit of modern brewery software, laid out to Apple's 
 ## Run it locally
 
 Serve the folder with any static server, for example `python3 -m http.server`, then open `http://localhost:8000`. There is no build step. ES modules need a server, so opening `index.html` from disk will not work.
+
+After editing any file in `js` or `css`, run `npm run stamp`. It stamps each file with a content hash so browsers never mix old and new files. `npm test` runs the copy check, the stamp check and 25 Playwright flow tests. GitHub Actions runs the same on every push.
 
 ## Credits
 

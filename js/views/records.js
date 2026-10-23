@@ -123,7 +123,8 @@ function taxMonths() {
 export const SETTINGS_FIELDS = [
   { k: 'name', label: 'Brewery name' }, { k: 'gstin', label: 'GSTIN' }, { k: 'address', label: 'Address', wide: 1 }, { k: 'state', label: 'State' },
   { k: 'prefix', label: 'Invoice prefix' }, { k: 'exciseRate', label: 'Excise duty (₹ per bulk litre)', type: 'number' }, { k: 'vat', label: 'VAT on beer (%)', type: 'number' },
-  { k: 'foodGst', label: 'GST on food (%)', type: 'number' }, { k: 'efficiency', label: 'Brewhouse efficiency (%)', type: 'number' },
+  { k: 'foodGst', label: 'GST on food (%)', type: 'number' }, { k: 'efficiency', label: 'Mash and lauter efficiency (%)', type: 'number' },
+  { k: 'grainAbsorb', label: 'Grain absorption (L per kg)', type: 'number' }, { k: 'dryHopAbsorb', label: 'Dry hop absorption (L per kg)', type: 'number' },
   { k: 'cipDays', label: 'CIP valid for (days)', type: 'number' }, { k: 'lossTarget', label: 'Beer loss target per batch (%)', type: 'number' },
   { k: 'lossAllow', label: 'Excise loss allowance (%)', type: 'number' },
   { k: 'exciseBasis', label: 'Book excise', type: 'select', options: [{ v: 'Ready', t: 'When a batch is marked Ready' }, { v: 'Removal', t: 'On removal (taproom pour or dispatch)' }] },

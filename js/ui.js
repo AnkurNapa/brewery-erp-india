@@ -34,11 +34,12 @@ export function readForm(form, fields) {
   return out;
 }
 
-// L = { label, opts:[{id,label}], rows:[{id,...}], cols:[{k,label,def(id)}] }
+// L = { label, opts:[{id,label}], rows:[{id,...}], cols:[{k,label,def(id),cell(id,row),text}], update(tr) }
+// A col with cell() draws its own input(s) named l_<k>; every row must still carry exactly one l_<k>.
 function lineRow(L, r = {}) {
   const id = r.id || L.opts[0]?.id;
   return `<tr><td><select name="l_id" aria-label="${esc(L.label)}">${L.opts.map(o => `<option value="${esc(o.id)}" ${o.id === id ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></td>
-    ${L.cols.map(c => `<td><input name="l_${c.k}" type="number" step="any" min="0" aria-label="${esc(c.label)}" value="${esc(r[c.k] ?? (c.def ? c.def(id) : ''))}"></td>`).join('')}
+    ${L.cols.map(c => `<td data-col="${c.k}">${c.cell ? c.cell(id, r) : `<input name="l_${c.k}" type="number" step="any" min="0" aria-label="${esc(c.label)}" value="${esc(r[c.k] ?? (c.def ? c.def(id) : ''))}">`}</td>`).join('')}
     <td><button type="button" class="x" data-delline aria-label="Remove line">×</button></td></tr>`;
 }
 
@@ -56,15 +57,16 @@ export function openForm({ title, fields = [], vals = {}, onSave, lines: L, note
   };
   const collect = () => {
     const fd = new FormData(form);
-    return fd.getAll('l_id').map((id, i) => Object.fromEntries([['id', id], ...(L?.cols ?? []).map(c => { const v = fd.getAll('l_' + c.k)[i]; return [c.k, v === '' ? '' : +v]; })]))
+    return fd.getAll('l_id').map((id, i) => Object.fromEntries([['id', id], ...(L?.cols ?? []).map(c => { const v = fd.getAll('l_' + c.k)[i] ?? ''; return [c.k, c.text || v === '' ? v : +v]; })]))
       .filter(r => !('qty' in r) || r.qty > 0);
   };
   const refresh = () => { if (live) form.querySelector('.preview').innerHTML = live(readForm(form, fields), collect()); };
   form.onchange = e => {
     if (L && e.target.name === 'l_id') {
       const tr = e.target.closest('tr');
-      for (const c of L.cols) if (c.def) tr.querySelector(`[name=l_${c.k}]`).value = c.def(e.target.value);
+      for (const c of L.cols) if (c.def && !c.cell) tr.querySelector(`[name=l_${c.k}]`).value = c.def(e.target.value);
     }
+    if (L?.update && e.target.closest('.lines tr')) L.update(e.target.closest('tr'), e.target);
     refresh();
   };
   form.oninput = refresh;

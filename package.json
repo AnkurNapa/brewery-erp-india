@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run check:copy && playwright test",
+    "test": "npm run check:copy && node scripts/stamp.mjs --check && playwright test",
     "check:copy": "node scripts/check-copy.mjs",
+    "stamp": "node scripts/stamp.mjs",
     "docs": "node scripts/build-docs.mjs"
   },
   "devDependencies": {
