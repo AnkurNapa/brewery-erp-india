@@ -38,7 +38,8 @@ export const issueList = (r, volume) => r.items.map(i => {
   return { id: i.id, qty, cost: +(qty * (mat(i.id)?.cost || 0)).toFixed(2) };
 });
 export const batchCost = b => sum(b.issues, i => i.cost);
-export const duty = b => (b.readyDate ? b.volume * b.dutyRate : 0);
+export const batchLoss = b => sum(db.losses.filter(l => l.batchId === b.id), l => l.litres);
+export const duty = b => (b.readyDate ? (b.dutyL || b.volume) * b.dutyRate : 0);
 export const packedL = p => p.units * p.unitL;
 export const batchPackedL = b => sum(db.packs.filter(p => p.batchId === b.id), packedL);
 
@@ -83,18 +84,18 @@ const tapL = (r, from = '') => sum(db.sales.filter(s => s.date >= from).flatMap(
 
 function draughtL(r) {
   const bs = db.batches.filter(b => b.recipeId === r.id);
-  const produced = sum(bs.filter(b => b.readyDate), b => b.volume);
+  const produced = sum(bs.filter(b => b.readyDate), b => b.volume - batchLoss(b));
   const wasted = sum(db.wastage.filter(w => w.kind === 'Beer' && w.ref === r.id), w => w.qty);
   return produced - sum(bs, batchPackedL) - tapL(r) - wasted;
 }
 // Litres physically in a tank. Ready beer drains oldest batch first.
 export function tankLeft(b) {
-  if (IN_TANK.includes(b.status)) return b.volume;
+  if (IN_TANK.includes(b.status)) return Math.max(0, b.volume - batchLoss(b));
   if (b.status !== 'Ready') return 0;
   const r = rec(b.recipeId);
   let left = Math.max(0, r ? draughtL(r) : 0);
   for (const x of db.batches.filter(x => x.recipeId === b.recipeId && x.status === 'Ready').sort((a, c) => c.readyDate.localeCompare(a.readyDate))) {
-    const here = Math.min(left, x.volume - batchPackedL(x));
+    const here = Math.min(left, x.volume - batchLoss(x) - batchPackedL(x));
     if (x.id === b.id) return Math.max(0, here);
     left -= here;
   }
@@ -104,7 +105,7 @@ export function tankLeft(b) {
 export function beerStock() {
   return db.recipes.map(r => {
     const bs = db.batches.filter(b => b.recipeId === r.id);
-    const produced = sum(bs.filter(b => b.readyDate), b => b.volume);
+    const produced = sum(bs.filter(b => b.readyDate), b => b.volume - batchLoss(b));
     const draught = draughtL(r);
     const packagedL = sum(db.packs.filter(p => bs.some(b => b.id === p.batchId)), p => packLeft(p) * p.unitL);
     const firstReady = bs.map(b => b.readyDate).filter(Boolean).sort()[0];
@@ -124,6 +125,39 @@ export function beerStock() {
     const brewBy = rate ? addDays(today(), Math.floor(daysLeft + (inTank ? inTank / rate : 0) - cycle)) : '';
     return { r, produced, draught, packagedL, total, rate, daysLeft, cycle, inTank, brewBy };
   });
+}
+
+// ---------- hygiene ----------
+// A tank is fit to fill when it was sanitised within the CIP window.
+export function tankFit(t) {
+  if (!t) return { ok: true, why: '' };
+  const days = db.settings.cipDays || 3, age = t.cleanedOn ? daysBetween(t.cleanedOn, today()) : Infinity;
+  if (t.hygiene === 'Dirty') return { ok: false, why: `${t.name} is dirty` };
+  if (t.hygiene !== 'Sanitised') return { ok: false, why: `${t.name} is cleaned but not sanitised` };
+  if (age > days) return { ok: false, why: `${t.name} was sanitised ${age} days ago (limit ${days})` };
+  return { ok: true, why: '' };
+}
+export const lastCip = (targetId, before = '9999') => db.cip.filter(c => c.targetId === targetId && c.date <= before).sort((a, b) => b.date.localeCompare(a.date))[0];
+
+// ---------- losses ----------
+export function lossBalance(b) {
+  const r = rec(b.recipeId), stages = {};
+  for (const l of db.losses.filter(l => l.batchId === b.id)) stages[l.stage] = (stages[l.stage] || 0) + l.litres;
+  const brewhouse = r ? Math.max(0, r.size - b.volume) : 0, total = sum(Object.values(stages));
+  return { v0: b.volume, brewhouse, stages, total, pct: b.volume ? total / b.volume * 100 : 0 };
+}
+
+// Beer in tanks between two counts: opening + brewed - sold - packaged - losses.
+export function beerReconcile(count) {
+  const prev = db.counts.filter(c => c.status === 'Posted' && c.date < count.date).sort((a, b) => b.date.localeCompare(a.date))[0];
+  const beer = c => sum(c.lines.filter(l => l.ref.startsWith('b:')), l => (l.counted === '' ? l.system : l.counted));
+  const from = prev?.date || '', to = count.date, inP = d => d > from && d <= to;
+  const brewed = sum(db.batches.filter(b => b.issued && inP(b.date)), b => b.volume);
+  const sold = sum(db.sales.filter(s => inP(s.date)).flatMap(s => s.lines), l => { const p = prod(l.pid); return p?.kind === 'beer' ? l.qty * p.ml / 1000 : 0; });
+  const packaged = sum(db.packs.filter(p => inP(p.date)), packedL);
+  const lost = sum(db.losses.filter(l => inP(l.date) && l.stage !== 'Unexplained'), l => l.litres) + sum(db.wastage.filter(w => w.kind === 'Beer' && inP(w.date)), w => w.qty);
+  const opening = prev ? beer(prev) : null, expected = opening == null ? null : opening + brewed - sold - packaged - lost;
+  return { prev, opening, brewed, sold, packaged, lost, expected, counted: beer(count) };
 }
 
 // ---------- money ----------
@@ -166,6 +200,18 @@ export function alerts() {
     if (due && due <= addDays(t, 7)) out.push({ lvl: due < t ? 'low' : 'warn', text: `${e.name} service ${due < t ? 'overdue since' : 'due'} ${fmtDate(due)}`, href: '#equipment' });
   }
   for (const k of db.kegs.filter(k => k.status === 'At customer' && daysBetween(k.since, t) > 30)) out.push({ lvl: 'warn', text: `Keg ${k.code} has been at ${cust(k.customerId)?.name || 'a customer'} for ${daysBetween(k.since, t)} days`, href: '#equipment' });
+  for (const tk of db.tanks) {
+    const planned = db.batches.find(b => b.tankId === tk.id && b.status === 'Planned');
+    if (tk.hygiene === 'Dirty') out.push({ lvl: planned ? 'low' : 'info', text: `${tk.name} needs CIP${planned ? `, ${planned.code} is planned into it on ${fmtDate(planned.date)}` : ''}`, href: '#cip' });
+    const c = lastCip(tk.id);
+    if (c?.result === 'Fail') out.push({ lvl: 'low', text: `${tk.name} failed its last CIP check on ${fmtDate(c.date)}`, href: '#cip' });
+  }
+  const target = db.settings.lossTarget || 5;
+  for (const b of db.batches.filter(b => b.issued && b.date >= daysAgo(60))) {
+    const lb = lossBalance(b);
+    if (lb.pct > target) out.push({ lvl: 'warn', text: `${b.code} has lost ${lb.pct.toFixed(1)}% of its beer, target ${target}%`, href: '#losses' });
+  }
+  for (const c of db.counts.filter(c => c.status === 'Open' && daysBetween(c.date, t) > 3)) out.push({ lvl: 'warn', text: `Stock take ${c.no} is still open`, href: '#count/' + c.id });
   for (const s of beerStock()) if (s.brewBy && s.brewBy <= addDays(t, 3) && !s.inTank) out.push({ lvl: 'warn', text: `Brew ${s.r.name} by ${fmtDate(s.brewBy)}: ${Math.round(s.daysLeft)} days of stock, ${s.cycle} day cycle`, href: '#calendar' });
   return out;
 }

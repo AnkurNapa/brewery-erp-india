@@ -158,6 +158,11 @@ select.inline { width: auto; min-height: 32px; padding: 4px 28px 4px 10px; font-
 .total { text-align: right; font-size: 15px; margin: 12px 0 0; } .total b { font-size: 20px; color: var(--ink); }
 .preview { margin-top: 16px; padding: 14px; background: var(--fill2); border-radius: 12px; }
 
+.hyg { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.count-in { width: 120px; min-height: 40px; text-align: right; }
+.reason-in { min-height: 36px; padding: 6px 10px; font-size: 14px; min-width: 140px; }
+tr.flag td { background: var(--orange-t); }
+
 /* ---------- calendar ---------- */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .dow { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; padding: 4px 0; }

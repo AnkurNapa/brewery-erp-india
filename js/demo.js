@@ -27,6 +27,8 @@ export function demo() {
     m('W-34/70 (500 g)', 'Yeast', 'pack', 2, 4, 6800, { atten: 82, vendorId: vYeast, expiry: ahead(150) }),
     m('CO2', 'Gas', 'kg', 60, 20, 40, { vendorId: vGas }),
     m('Caustic soda', 'Chemical', 'kg', 25, 10, 120, { vendorId: vGas }),
+    m('Phosphoric acid', 'Chemical', 'L', 15, 5, 300, { vendorId: vGas }),
+    m('Peracetic sanitiser', 'Chemical', 'L', 4, 5, 450, { vendorId: vGas }),
   ];
   const M = n => materials.find(x => x.name.startsWith(n)).id;
   const r = (name, style, items, version = 1, history = []) => ({
@@ -44,21 +46,37 @@ export function demo() {
   const issues = (rc, vol) => rc.items.map(i => ({ id: i.id, qty: +(i.qty * vol / rc.size).toFixed(3), cost: +(i.qty * vol / rc.size * cost(i.id)).toFixed(2) }));
 
   const tanks = [['FV-1', 'Fermenter', 600], ['FV-2', 'Fermenter', 600], ['FV-3', 'Fermenter', 600], ['FV-4', 'Unitank', 600], ['BBT-1', 'Brite tank', 500], ['BBT-2', 'Brite tank', 500]]
-    .map(([name, type, capacity]) => ({ id: uid(), name, type, capacity }));
+    .map(([name, type, capacity]) => ({ id: uid(), name, type, capacity, hygiene: 'Cleaned', cleanedOn: '' }));
   const T = n => tanks.find(t => t.name === n).id;
   const curve = (start, og, fg, days, temp) => Array.from({ length: days }, (_, i) => ({ date: daysAgo(start - i), gravity: +(fg + (og - fg) * Math.exp(-i / 2.2)).toFixed(3), temp, ph: i === 0 ? 5.2 : '', note: i === 0 ? 'Pitched' : '' }));
   const b = (code, rc, date, status, volume, og, fg, tank, extra = {}) => ({
-    id: uid(), code, recipeId: rc.id, recipeVersion: rc.version, date, status, volume, og, fg, tankId: T(tank), notes: '', readyDate: '', dutyRate: 0,
+    id: uid(), code, recipeId: rc.id, recipeVersion: rc.version, date, status, volume, og, fg, tankId: T(tank), notes: '', readyDate: '', dutyRate: 0, dutyL: 0, transfers: [],
     issued: status !== 'Planned', issues: status !== 'Planned' ? issues(rc, volume) : [], log: [], brew: { mashTemp: '', preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' }, ...extra,
   });
   const batches = [
-    b('B-001', ipa, daysAgo(34), 'Ready', 500, 1.058, 1.013, 'BBT-1', { readyDate: daysAgo(14), dutyRate: 50, log: curve(33, 1.058, 1.013, 12, 19), brew: { mashTemp: 66.5, preBoil: 1.049, og: 1.058, volume: 500, pitchTemp: 18, notes: 'Smooth brew day' } }),
-    b('B-002', wit, daysAgo(18), 'Ready', 495, 1.049, 1.012, 'BBT-2', { readyDate: daysAgo(3), dutyRate: 50, log: curve(17, 1.049, 1.012, 10, 20), brew: { mashTemp: 67, preBoil: 1.042, og: 1.049, volume: 495, pitchTemp: 19, notes: '' } }),
+    b('B-001', ipa, daysAgo(34), 'Ready', 500, 1.058, 1.013, 'BBT-1', { readyDate: daysAgo(14), dutyRate: 50, dutyL: 486, transfers: [{ date: daysAgo(16), fromId: T('FV-1'), toId: T('BBT-1'), litresOut: 492, litresIn: 486 }], log: curve(33, 1.058, 1.013, 12, 19), brew: { mashTemp: 66.5, preBoil: 1.049, og: 1.058, volume: 500, pitchTemp: 18, notes: 'Smooth brew day' } }),
+    b('B-002', wit, daysAgo(18), 'Ready', 495, 1.049, 1.012, 'BBT-2', { readyDate: daysAgo(3), dutyRate: 50, dutyL: 483, transfers: [{ date: daysAgo(4), fromId: T('FV-3'), toId: T('BBT-2'), litresOut: 488, litresIn: 483 }], log: curve(17, 1.049, 1.012, 10, 20), brew: { mashTemp: 67, preBoil: 1.042, og: 1.049, volume: 495, pitchTemp: 19, notes: '' } }),
     b('B-003', helles, daysAgo(10), 'Conditioning', 505, 1.052, 1.010, 'FV-2', { log: curve(9, 1.052, 1.010, 10, 11), brew: { mashTemp: 64, preBoil: 1.045, og: 1.052, volume: 505, pitchTemp: 10, notes: 'Mash ran cold, HLT element tripped' } }),
     b('B-004', ipa, daysAgo(3), 'Fermenting', 480, 1.053, 1.013, 'FV-1', { log: curve(2, 1.053, 1.013, 3, 19), brew: { mashTemp: 66, preBoil: 1.045, og: 1.053, volume: 480, pitchTemp: 18, notes: 'Short on volume, sparge stuck' } }),
     b('B-005', wit, ahead(4), 'Planned', 500, 0, 0, 'FV-3'),
   ];
   const B = c => batches.find(x => x.code === c).id;
+  Object.assign(tanks.find(t => t.name === 'FV-3'), { hygiene: 'Dirty', cleanedOn: daysAgo(19) });
+  Object.assign(tanks.find(t => t.name === 'FV-4'), { hygiene: 'Sanitised', cleanedOn: daysAgo(2) });
+  const chem = n => materials.find(x => x.name === n).id;
+  const cip = (date, tk, cycle, chemName, chemQty, result = 'Pass', note = '') => ({ id: uid(), date, targetId: T(tk), cycle, conc: cycle === 'Sanitiser' ? 0.2 : 2, temp: cycle === 'Sanitiser' ? 20 : 75, mins: cycle === 'Sanitiser' ? 15 : 45, chemicalId: chem(chemName), chemQty, operator: 'Ravi', result, note });
+  const cipLog = [
+    cip(daysAgo(19), 'FV-3', 'Full CIP', 'Caustic soda', 1.5), cip(daysAgo(17), 'BBT-1', 'Sanitiser', 'Peracetic sanitiser', 0.5),
+    cip(daysAgo(11), 'FV-2', 'Full CIP', 'Caustic soda', 1.5), cip(daysAgo(6), 'BBT-2', 'Sanitiser', 'Peracetic sanitiser', 0.5, 'Fail', 'ATP swab 480 RLU, limit 150'),
+    cip(daysAgo(5), 'BBT-2', 'Full CIP', 'Caustic soda', 1.5), cip(daysAgo(4), 'FV-1', 'Full CIP', 'Caustic soda', 1.5), cip(daysAgo(2), 'FV-4', 'Full CIP', 'Caustic soda', 1.5),
+  ];
+  const loss = (date, code, stage, litres, reason) => ({ id: uid(), date, batchId: B(code), stage, litres, reason });
+  const losses = [
+    loss(daysAgo(16), 'B-001', 'Fermentation', 8, 'Left in fermenter (yeast and trub)'), loss(daysAgo(16), 'B-001', 'Transfer', 6, 'FV-1 to BBT-1'),
+    loss(daysAgo(14), 'B-001', 'Unexplained', 2, 'ST-0001: Miscount'), loss(daysAgo(13), 'B-001', 'Packaging', 3, 'Can 330 ml run'), loss(daysAgo(3), 'B-001', 'Taproom', 10, 'Line flush'),
+    loss(daysAgo(4), 'B-002', 'Fermentation', 7, 'Left in fermenter (yeast and trub)'), loss(daysAgo(4), 'B-002', 'Transfer', 5, 'FV-3 to BBT-2'),
+    loss(daysAgo(4), 'B-003', 'Fermentation', 12, 'Yeast dump'),
+  ];
 
   const customers = [
     { id: uid(), name: 'Koramangala Social', type: 'Bar', gstin: '29AAACK1234L1Z2', phone: '98860 12345', city: 'Bengaluru' },
@@ -101,8 +119,8 @@ export function demo() {
   });
 
   return {
-    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72 },
-    seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13 },
+    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, cipDays: 3, lossTarget: 5, lossAllow: 2 },
+    seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13, count: 2 },
     materials, recipes, products, tanks, batches, sales, kegs, customers, vendors, packs, dispatches,
     equipment: [
       { id: uid(), code: 'EQ-01', name: '5 HL brewhouse', type: 'Brewhouse', lastService: daysAgo(80), serviceDays: 90 },
@@ -126,9 +144,18 @@ export function demo() {
       { id: uid(), date: daysAgo(15), type: 'LPG / PNG', qty: 120, unit: 'kg', cost: 10800 },
       { id: uid(), date: daysAgo(8), type: 'CO2', qty: 50, unit: 'kg', cost: 2000 },
     ],
-    wastage: [
-      { id: uid(), date: daysAgo(3), kind: 'Beer', ref: ipa.id, qty: 10, reason: 'Line flush' },
-      { id: uid(), date: daysAgo(9), kind: 'Material', ref: M('Crystal 60'), qty: 2, reason: 'Damp bag' },
+    wastage: [{ id: uid(), date: daysAgo(9), kind: 'Material', ref: M('Crystal 60'), qty: 2, reason: 'Damp bag' }],
+    cip: cipLog, losses,
+    counts: [{ id: 'st0001', no: 'ST-0001', date: daysAgo(14), status: 'Posted', lines: [
+      { ref: 'm:' + M('Pale malt'), label: 'Pale malt', unit: 'kg', system: 700, counted: 698, cost: 65, reason: 'Spillage' },
+      { ref: 'm:' + M('Cascade'), label: 'Cascade', unit: 'kg', system: 7, counted: 7, cost: 3200, reason: '' },
+      { ref: 'b:' + B('B-001'), label: 'BBT-1 · B-001 Indiranagar IPA', unit: 'L', system: 486, counted: 484, cost: 67.48, reason: 'Miscount' },
+      { ref: 'b:' + B('B-002'), label: 'FV-3 · B-002 Monsoon Wit', unit: 'L', system: 495, counted: 495, cost: 35.72, reason: '' },
+      { ref: 'k:all', label: 'Kegs owned, all states', unit: 'kegs', system: 12, counted: 12, cost: 0, reason: '' },
+    ] }],
+    adjustments: [
+      { id: uid(), date: daysAgo(14), countId: 'st0001', ref: 'm:' + M('Pale malt'), label: 'Pale malt', delta: -2, value: -130, reason: 'Spillage' },
+      { id: uid(), date: daysAgo(14), countId: 'st0001', ref: 'b:' + B('B-001'), label: 'BBT-1 · B-001 Indiranagar IPA', delta: -2, value: -134.96, reason: 'Miscount' },
     ],
   };
 }

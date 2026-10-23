@@ -8,6 +8,10 @@ const KEY = 'brewhouse-erp-v2';
 export const STATUSES = ['Planned', 'Brewing', 'Fermenting', 'Conditioning', 'Ready', 'Sold out'];
 export const IN_TANK = ['Brewing', 'Fermenting', 'Conditioning'];
 export const KEG_STATES = ['Empty', 'Filled', 'At customer', 'Cleaning'];
+export const HYGIENE = ['Cleaned', 'Sanitised', 'Dirty'];
+export const CIP_CYCLES = ['Full CIP', 'Caustic', 'Acid', 'Sanitiser', 'Rinse'];
+export const LOSS_STAGES = ['Fermentation', 'Transfer', 'Packaging', 'Taproom', 'Dispatch', 'QC samples', 'Dump', 'Unexplained'];
+export const TASK_TYPES = ['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other'];
 
 const ID = v => String(v ?? '').replace(/[^\w-]/g, '').slice(0, 40);
 const REF = v => String(v ?? '').replace(/[^\w:-]/g, '').slice(0, 44);
@@ -27,10 +31,11 @@ const SCHEMA = {
   materials: { id: ID, name: STR, type: STR, unit: STR, qty: NUM, reorder: NUM, cost: NUM, extract: NUM, ebc: NUM, alpha: NUM, atten: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), vendorId: ID },
   recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, packLoss: NUM, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
   products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM },
-  tanks: { id: ID, name: STR, type: STR, capacity: NUM },
+  tanks: { id: ID, name: STR, type: STR, capacity: NUM, hygiene: ONE(HYGIENE), cleanedOn: DATE },
   batches: {
     id: ID, code: STR, recipeId: ID, recipeVersion: NUM, date: DATE, status: ONE(STATUSES), volume: NUM, og: NUM, fg: NUM, tankId: ID, notes: STR,
-    readyDate: DATE, dutyRate: NUM, issued: BOOL, issues: LIST({ id: ID, qty: NUM, cost: NUM }),
+    readyDate: DATE, dutyRate: NUM, dutyL: NUM, issued: BOOL,
+    transfers: LIST({ date: DATE, fromId: ID, toId: ID, litresOut: NUM, litresIn: NUM }), issues: LIST({ id: ID, qty: NUM, cost: NUM }),
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
     brew: obj({ mashTemp: OPT, preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
@@ -42,12 +47,16 @@ const SCHEMA = {
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
   packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, kegIds: IDS },
   dispatches: { id: ID, no: STR, date: DATE, customerId: ID, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM }) },
-  tasks: { id: ID, title: STR, type: ONE(['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other']), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
+  tasks: { id: ID, title: STR, type: ONE(TASK_TYPES), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
   wastage: { id: ID, date: DATE, kind: ONE(['Beer', 'Material']), ref: ID, qty: NUM, reason: STR },
+  cip: { id: ID, date: DATE, targetId: ID, cycle: ONE(CIP_CYCLES), conc: OPT, temp: OPT, mins: OPT, chemicalId: ID, chemQty: NUM, operator: STR, result: ONE(['Pass', 'Fail']), note: STR },
+  losses: { id: ID, date: DATE, batchId: ID, stage: ONE(LOSS_STAGES), litres: NUM, reason: STR },
+  counts: { id: ID, no: STR, date: DATE, status: ONE(['Open', 'Posted']), lines: LIST({ ref: REF, label: STR, unit: STR, system: NUM, counted: OPT, cost: NUM, reason: STR }) },
+  adjustments: { id: ID, date: DATE, countId: ID, ref: REF, label: STR, delta: NUM, value: NUM, reason: STR },
 };
-const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM };
-const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM };
+const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM };
+const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM };
 
 export function clean(d) {
   const out = { settings: obj(SETTINGS)(d?.settings), seq: obj(SEQ)(d?.seq) };
@@ -67,8 +76,11 @@ export function load() {
   try { d = JSON.parse(localStorage.getItem(KEY)); } catch { /* blocked or corrupt: fall back to demo */ }
   replace(isBackup(d) ? d : demo());
 }
-export function commit() {
+export function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { toast('This browser blocked saving. Export a backup from Settings.'); }
+}
+export function commit() {
+  persist();
   dispatchEvent(new Event('db'));
 }
 export const next = (key, prefix, width) => `${prefix}-${String(db.seq[key]++).padStart(width, '0')}`;

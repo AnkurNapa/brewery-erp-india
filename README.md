@@ -20,7 +20,15 @@ It opens with a demo brewpub loaded. Use **Settings > Start empty** when you are
 
 **Production.** Batches move from Planned to Brewing, Fermenting, Conditioning, Ready and Sold out. Ingredients are issued when a batch leaves Planned. A step by step brew log captures mash temperature, gravities, volume and pitch temperature. Anything outside tolerance is flagged. Fermentation readings (gravity, temperature, pH) draw a curve per tank.
 
-**Packaging.** Kegging, canning and bottling runs. Kegs are picked from empty stock and tagged to the batch.
+**Transfers.** Move a batch from fermenter to brite tank. Litres left behind and lost in the move are recorded, and the old tank is marked dirty with a CIP task.
+
+**CIP.** Every tank carries a hygiene state: Dirty, Cleaned or Sanitised. Log each cycle with strength, temperature, minutes, chemical used and a pass or fail check. Chemicals come off stores. Filling a tank that is not sanitised within the CIP window asks for confirmation, and dirty tanks with a brew planned raise an alert.
+
+**Beer losses.** Losses by stage: fermentation, transfer, packaging, taproom, dispatch, QC samples, dumps and unexplained. Transfer and packaging losses are captured automatically. Each batch record shows its loss balance against a target, and the Beer losses screen ranks stages and batches. Excise is booked on litres in tank at Ready, after recorded losses.
+
+**Stock take.** A blind count of raw materials, packaged goods, beer in every tank and kegs. Review shows variance in quantity and value, each variance needs a reason, and posting writes permanent adjustments. Beer variances become unexplained losses on that batch. A beer reconciliation runs from the last posted count: opening + brewed − sold − packaged − losses against what was counted.
+
+**Packaging.** Kegging, canning and bottling runs, capped at the litres left in the tank. Kegs are picked from empty stock and tagged to the batch.
 
 **Dispatch.** Kegs and packaged beer sent to customers. Kegs are tracked through Filled, At customer, Cleaning and Empty.
 

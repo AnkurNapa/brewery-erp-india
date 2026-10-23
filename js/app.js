@@ -1,5 +1,5 @@
 // Router and event wiring. Each view module exports views, actions and segs.
-import { db, load } from './store.js';
+import { db, load, persist } from './store.js';
 import { esc, $ } from './util.js';
 import { alerts } from './calc.js';
 import * as home from './views/home.js';
@@ -7,8 +7,9 @@ import * as brew from './views/brew.js';
 import * as stores from './views/stores.js';
 import * as sales from './views/sales.js';
 import * as records from './views/records.js';
+import * as control from './views/control.js';
 
-const MODULES = [home, brew, stores, sales, records];
+const MODULES = [home, brew, stores, sales, control, records];
 const VIEWS = Object.assign({}, ...MODULES.map(m => m.views));
 const ACTIONS = Object.assign({}, ...MODULES.map(m => m.actions));
 const SEGS = Object.assign({}, ...MODULES.map(m => m.segs || {}));
@@ -17,6 +18,7 @@ const NAV = [
   ['Overview', [['dash', 'Home'], ['calendar', 'Schedule']]],
   ['Brewing', [['tanks', 'Tanks'], ['batches', 'Batches'], ['recipes', 'Recipes'], ['packaging', 'Packaging']]],
   ['Stores', [['materials', 'Raw materials'], ['purchasing', 'Purchasing and MRP'], ['equipment', 'Equipment and kegs']]],
+  ['Quality and control', [['cip', 'CIP'], ['losses', 'Beer losses'], ['stocktake', 'Stock take']]],
   ['Sales', [['sales', 'Taproom sales'], ['dispatch', 'Dispatch'], ['menu', 'Menu'], ['partners', 'Customers and vendors']]],
   ['Records', [['records', 'Utilities and wastage'], ['reports', 'Reports'], ['tax', 'Excise and tax'], ['settings', 'Settings']]],
 ];
@@ -30,7 +32,7 @@ const ICON = {
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
 };
 // Detail screens get an iOS style back button to their parent list.
-const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'] };
+const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'] };
 let depth = 0, prev = null, cur = null;
 const TITLES = Object.fromEntries(NAV.flatMap(([, items]) => items));
 const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
@@ -41,8 +43,9 @@ function route() {
 }
 
 function draw() {
+  if (brew.settle()) persist();
   const { view, arg } = route(), n = alerts().length;
-  const active = view === 'blr' ? 'batches' : view === 'scan' ? 'equipment' : view;
+  const active = { blr: 'batches', scan: 'equipment', count: 'stocktake' }[view] || view;
   $('side').innerHTML = `<a class="logo" href="#dash"><b>Brewhouse</b><span>Brewery Management ERP</span></a><p class="brand">${esc(db.settings.name)}</p>`
     + NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${t}${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
   $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${svg(k)}<span>${t}</span></a>`).join('')
@@ -73,6 +76,7 @@ $('main').addEventListener('change', e => {
   if (e.target.dataset.status) brew.setStatus(e.target.dataset.status, e.target.value);
   if (e.target.id === 'importFile' && e.target.files[0]) records.importBackup(e.target.files[0]);
 });
+$('main').addEventListener('input', e => control.onInput(e));
 $('main').addEventListener('submit', e => {
   if (e.target.id !== 'settingsForm') return;
   e.preventDefault();

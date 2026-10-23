@@ -74,7 +74,7 @@ const REPORT_TABS = [['business', 'Business'], ['production', 'Production'], ['c
 export const views = {
   records() {
     const from = daysAgo(30);
-    return head('Utilities and wastage', 'Record utilities for an accurate COGS. Log every litre or kilo written off.', `${btn('Record wastage', 'newWaste', '', 'ghost')} ${btn('Record utility', 'newUtil')}`)
+    return head('Utilities and wastage', 'Record utilities for an accurate COGS. Beer losses have their own screen under Quality and control.', `${btn('Beer losses', 'go', 'losses', 'ghost')} ${btn('Record utility', 'newUtil')}`)
       + `<div class="kpis four">${Object.keys(UTIL_TYPES).slice(0, 4).map(t => kpi(inr0(sum(db.utilities.filter(u => u.type === t && u.date >= from), u => u.cost)), `${t}, 30 days`)).join('')}</div>`
       + panel('Utilities', table(['Date', 'Type', { t: 'Quantity', n: 1 }, { t: 'Cost', n: 1 }, ''], [...db.utilities].sort((a, b) => b.date.localeCompare(a.date)).map(u => `<tr><td>${fmtDate(u.date)}</td><td>${esc(u.type)}</td><td class="n">${num(u.qty)} ${esc(u.unit)}</td><td class="n">${inr0(u.cost)}</td><td class="acts">${link('Delete', 'delUtil', u.id, 'del')}</td></tr>`)))
       + panel('Wastage', table(['Date', 'Kind', 'Item', { t: 'Quantity', n: 1 }, 'Reason', ''], [...db.wastage].sort((a, b) => b.date.localeCompare(a.date)).map(w => `<tr><td>${fmtDate(w.date)}</td><td>${pill(w.kind, w.kind === 'Beer' ? 'orange' : 'grey')}</td>
@@ -113,6 +113,8 @@ export const SETTINGS_FIELDS = [
   { k: 'name', label: 'Brewery name' }, { k: 'gstin', label: 'GSTIN' }, { k: 'address', label: 'Address', wide: 1 }, { k: 'state', label: 'State' },
   { k: 'prefix', label: 'Invoice prefix' }, { k: 'exciseRate', label: 'Excise duty (₹ per bulk litre)', type: 'number' }, { k: 'vat', label: 'VAT on beer (%)', type: 'number' },
   { k: 'foodGst', label: 'GST on food (%)', type: 'number' }, { k: 'efficiency', label: 'Brewhouse efficiency (%)', type: 'number' },
+  { k: 'cipDays', label: 'CIP valid for (days)', type: 'number' }, { k: 'lossTarget', label: 'Beer loss target per batch (%)', type: 'number' },
+  { k: 'lossAllow', label: 'Excise loss allowance (%)', type: 'number' },
 ];
 
 export const actions = {
