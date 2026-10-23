@@ -1,25 +1,33 @@
 // Menu, taproom invoices, dispatch to trade customers, customer and vendor masters.
-import { db, next, commit, moveKeg, undoKeg } from '../store.js';
+import { db, remove, next, commit, moveKeg, undoKeg, logAct, guardLock } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysBetween } from '../util.js';
 import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
 import { parseLoc } from '../kegmap.js';
 import { periodSeg, periodText, inPeriod } from '../period.js';
 import { rec, prod, cust, keg, pack, invoice, packLeft, beerStock, removalDutyOn } from '../calc.js';
 
-const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 let partnerTab = 'customers';
+
+function creditNote(s, reason) {
+  const cn = { ...s, id: uid(), no: next('cn', 'CN', 4), date: today(), type: 'Credit note', ref: s.no, reason, cancelledBy: '', dispatchId: '', duty: -s.duty, lines: s.lines.map(l => ({ ...l, qty: -l.qty })) };
+  db.sales.push(cn);
+  s.cancelledBy = cn.id;
+  logAct('Cancelled invoice', s.no, `${cn.no}: ${reason}`);
+  return cn;
+}
 
 export const views = {
   sales() {
     const list = db.sales.filter(s => inPeriod(s.date)), tot = list.map(invoice);
+    const docNote = s => s.cancelledBy ? `<small class="sub void">Cancelled by ${esc(db.sales.find(x => x.id === s.cancelledBy)?.no || '')}</small>` : s.type === 'Credit note' ? `<small class="sub">Against ${esc(s.ref)}: ${esc(s.reason)}</small>` : '';
     const rows = [...list].sort((a, b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no)).map(s => {
       const c = invoice(s);
-      return `<tr><td class="code">${esc(s.no)}</td><td>${fmtDate(s.date)}</td><td>${esc(s.customer)} ${s.dispatchId ? pill('Trade', 'info') : ''}</td><td class="n">${inr(c.beer)}</td><td class="n">${inr(c.food)}</td>
-        <td class="n">${inr(c.vat + c.cgst + c.sgst)}</td><td class="n"><b>${inr(c.total)}</b></td><td class="acts">${link('Print', 'printInv', s.id)}${link('Delete', 'delInv', s.id, 'del')}</td></tr>`;
+      return `<tr class="${s.cancelledBy ? 'voided' : ''}"><td class="code">${esc(s.no)}</td><td>${fmtDate(s.date)}</td><td>${esc(s.customer)} ${s.dispatchId ? pill('Trade', 'info') : ''}${s.type === 'Credit note' ? pill('Credit note', 'orange') : ''}${docNote(s)}</td><td class="n">${inr(c.beer)}</td><td class="n">${inr(c.food)}</td>
+        <td class="n">${inr(c.vat + c.cgst + c.sgst)}</td><td class="n"><b>${inr(c.total)}</b></td><td class="acts">${link('Print', 'printInv', s.id)}${s.type === 'Invoice' && !s.cancelledBy ? link('Cancel', 'cancelInv', s.id, 'del') : ''}</td></tr>`;
     });
     return head('Taproom sales', 'Beer carries state VAT and is drawn from that beer\'s tank stock. Food carries GST split as CGST and SGST.', `${btn('Sales CSV', 'csvSales', '', 'ghost')} ${btn('New invoice', 'newInv')}`)
       + periodSeg()
-      + `<div class="kpis four">${kpi(list.length, `Invoices ${periodText()}`)}${kpi(inr0(sum(tot, c => c.beer)), 'Beer before tax')}${kpi(inr0(sum(tot, c => c.food)), 'Food before tax')}${kpi(inr0(sum(tot, c => c.total)), 'Total with tax')}</div>`
+      + `<div class="kpis four">${kpi(list.filter(s => s.type === 'Invoice').length, `Invoices ${periodText()}`)}${kpi(inr0(sum(tot, c => c.beer)), 'Beer before tax')}${kpi(inr0(sum(tot, c => c.food)), 'Food before tax')}${kpi(inr0(sum(tot, c => c.total)), 'Total with tax')}</div>`
       + panel('', rows.length ? table(['Invoice', 'Date', 'Customer', { t: 'Beer', n: 1 }, { t: 'Food', n: 1 }, { t: 'Tax', n: 1 }, { t: 'Total', n: 1 }, ''], rows) : `<p class="empty">No invoices ${periodText()}.</p>`);
   },
 
@@ -36,8 +44,8 @@ export const views = {
     const collect = Object.entries(byCust).map(([cid, ks]) => `<div class="collect"><h4>${esc(cust(cid)?.name || 'Unknown customer')} <small>${ks.length} keg${ks.length > 1 ? 's' : ''}</small></h4>
       ${ks.sort((a, b) => a.since.localeCompare(b.since)).map(k => { const days = daysBetween(k.since, today()); return `<div class="collect-row"><span class="code">${esc(k.code)}</span><span class="${days > 30 ? 'bad' : ''}">${days} days</span>${link('Picked up', 'kegPickup', k.id)}</div>`; }).join('')}</div>`);
     const sent = db.dispatches.filter(d => inPeriod(d.date));
-    const rows = [...sent].sort((a, b) => b.date.localeCompare(a.date)).map(d => `<tr><td class="code">${esc(d.no)}</td><td>${fmtDate(d.date)}</td><td>${esc(cust(d.customerId)?.name || '')}${d.invoiceId ? `<small class="sub">${esc(db.sales.find(s => s.id === d.invoiceId)?.no || '')}</small>` : ''}</td>
-      <td>${d.lines.map(l => `${esc(l.label)}${l.qty > 1 ? ' × ' + l.qty : ''}`).join('<br>')}</td><td class="n">${num(sum(d.lines, l => l.litres))} L</td><td class="acts">${link('Delete', 'delDispatch', d.id, 'del')}</td></tr>`);
+    const rows = [...sent].sort((a, b) => b.date.localeCompare(a.date)).map(d => `<tr class="${d.cancelledBy ? 'voided' : ''}"><td class="code">${esc(d.no)}</td><td>${fmtDate(d.date)}</td><td>${esc(cust(d.customerId)?.name || '')}${d.ref ? `${pill('Reversal', 'orange')}<small class="sub">Reverses ${esc(d.ref)}: ${esc(d.reason)}</small>` : ''}${d.cancelledBy ? '<small class="sub void">Cancelled</small>' : ''}${d.invoiceId ? `<small class="sub">${esc(db.sales.find(s => s.id === d.invoiceId)?.no || '')}</small>` : ''}</td>
+      <td>${d.lines.map(l => `${esc(l.label)}${l.qty > 1 ? ' × ' + l.qty : ''}`).join('<br>')}</td><td class="n">${num(sum(d.lines, l => l.litres))} L</td><td class="acts">${d.ref || d.cancelledBy ? '' : link('Cancel', 'cancelDispatch', d.id, 'del')}</td></tr>`);
     return head('Dispatch', 'Kegs and packaged beer sent to bars, shops and distributors. Kegs move to At customer until they are picked up.', btn('New dispatch', 'newDispatch'))
       + panel(`Kegs to collect (${out.length})`, collect.length ? `<div class="collect-grid">${collect.join('')}</div>` : '<p class="empty">No kegs out with customers.</p>')
       + periodSeg()
@@ -121,10 +129,18 @@ export const actions = {
       },
     });
   },
-  delInv(id) { remove('sales', id, 'invoice'); },
+  // Invoices are never deleted. Cancelling raises a credit note dated today that reverses every line, so VAT, GST,
+  // excise and stock correct themselves in the month of cancellation and a month already filed does not change.
+  cancelInv(id) {
+    const s = db.sales.find(x => x.id === id);
+    if (s.dispatchId && db.dispatches.find(d => d.id === s.dispatchId && !d.cancelledBy)) return toast('This invoice belongs to a dispatch. Cancel the dispatch instead, so the goods come back too.');
+    if (!guardLock(today())) return;
+    openForm({ title: `Cancel ${s.no}`, fields: [{ k: 'reason', label: 'Reason', req: 1, wide: 1 }], note: `A credit note dated today reverses every line of ${esc(s.no)}. The invoice keeps its number.`,
+      onSave: v => { const cn = creditNote(s, v.reason); toast(`${s.no} cancelled by ${cn.no}`); } });
+  },
   printInv(id) {
-    const s = db.sales.find(x => x.id === id), c = invoice(s), st = db.settings;
-    document.getElementById('print').innerHTML = `<div class="inv-head"><div><h2>${esc(st.name)}</h2>${esc(st.address)}<br>GSTIN ${esc(st.gstin)}</div><div style="text-align:right"><h2>Tax invoice</h2>${esc(s.no)}<br>${esc(s.date)}</div></div>
+    const s = db.sales.find(x => x.id === id), c = invoice(s), st = db.settings, cn = s.type === 'Credit note';
+    document.getElementById('print').innerHTML = `<div class="inv-head"><div><h2>${esc(st.name)}</h2>${esc(st.address)}<br>GSTIN ${esc(st.gstin)}</div><div style="text-align:right"><h2>${cn ? 'Credit note' : 'Tax invoice'}</h2>${esc(s.no)}<br>${esc(s.date)}${cn ? `<br>Against invoice ${esc(s.ref)}` : ''}${s.cancelledBy ? '<br><b>CANCELLED</b>' : ''}</div></div>
       <p><b>Bill to:</b> ${esc(s.customer)}${s.gstin ? `<br>GSTIN ${esc(s.gstin)}` : ''}</p>
       <table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Rate</th><th class="n">Amount</th></tr></thead><tbody>
       ${s.lines.map(l => `<tr><td>${esc(l.name)}</td><td class="n">${num(l.qty, 2)}</td><td class="n">${inr(l.price)}</td><td class="n">${inr(l.qty * l.price)}</td></tr>`).join('')}</tbody>
@@ -181,13 +197,24 @@ export const actions = {
       },
     });
   },
-  delDispatch(id) {
+  // A dispatch is reversed, not deleted: a reversal dated today brings packs back to stock, kegs back to Filled
+  // and cancels the trade invoice with a credit note. Kegs already picked up or moved on block it.
+  cancelDispatch(id) {
     const d = db.dispatches.find(x => x.id === id);
-    if (!confirm(`Delete ${d.no}? Kegs on it go back to Filled${d.invoiceId ? ' and its trade invoice is deleted' : ''}.`)) return;
-    db.sales = db.sales.filter(s => s.id !== d.invoiceId);
-    for (const l of d.lines) if (l.ref.startsWith('k:')) { const k = keg(l.ref.slice(2)); if (k?.status === 'At customer') undoKeg(k, 'Filled', { customerId: '' }); }
-    db.dispatches = db.dispatches.filter(x => x.id !== id);
-    commit();
+    const away = d.lines.filter(l => l.ref.startsWith('k:')).map(l => keg(l.ref.slice(2))).filter(k => k && !(k.status === 'At customer' && k.customerId === d.customerId));
+    if (away.length) return toast(`${away.map(k => k.code).join(', ')} ${away.length === 1 ? 'is' : 'are'} no longer at the customer, so ${d.no} cannot be cancelled`);
+    if (!guardLock(today())) return;
+    openForm({ title: `Cancel ${d.no}`, fields: [{ k: 'reason', label: 'Reason', req: 1, wide: 1 }], note: `Kegs go back to Filled, packs back to stock${d.invoiceId ? ' and the trade invoice is cancelled by a credit note' : ''}. ${esc(d.no)} stays on file.`,
+      onSave: v => {
+        for (const l of d.lines) if (l.ref.startsWith('k:')) undoKeg(keg(l.ref.slice(2)), 'Filled', { customerId: '' });
+        const rev = { ...d, id: uid(), no: `${d.no}-R`, date: today(), ref: d.no, reason: v.reason, invoiceId: '', cancelledBy: '', duty: -d.duty, lines: d.lines.map(l => ({ ...l, qty: -l.qty, litres: -l.litres })) };
+        db.dispatches.push(rev);
+        d.cancelledBy = rev.id;
+        const inv = db.sales.find(s => s.id === d.invoiceId);
+        if (inv && !inv.cancelledBy) creditNote(inv, `Dispatch ${d.no} cancelled: ${v.reason}`);
+        logAct('Cancelled dispatch', d.no, v.reason);
+        toast(`${d.no} cancelled`);
+      } });
   },
 
   newCust() {

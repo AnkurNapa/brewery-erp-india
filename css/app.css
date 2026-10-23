@@ -132,6 +132,10 @@ a.code { color: var(--blue); }
 .ghost.file { cursor: pointer; }
 .link { background: none; border: 0; color: var(--blue); font-weight: 500; padding: 4px 8px; border-radius: 6px; font-size: 14px; }
 .link:hover { background: var(--blue-t); }
+/* Voided and cancelled records stay listed, faded, with the reason under them. */
+tr.voided td { color: var(--muted); }
+tr.voided .pill { opacity: .55; }
+.sub.void { color: var(--red); }
 .link.del { color: var(--red); } .link.del:hover { background: var(--red-t); }
 .link.strong { font-weight: 600; }
 select, input, textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--fill2); border: 1px solid transparent; border-radius: var(--r-sm); padding: 10px 12px; width: 100%; min-height: 44px; transition: border-color .12s, background-color .12s; }

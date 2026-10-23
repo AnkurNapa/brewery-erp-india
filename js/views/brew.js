@@ -1,5 +1,5 @@
 // Tanks, batches, batch lifecycle record, recipes and packaging.
-import { db, next, commit, consume, addLot, usableQty, restore, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
+import { db, remove, next, commit, logAct, consume, addLot, usableQty, restore, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween, sgFromP } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
 import { mat, rec, recipeAt, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
@@ -51,6 +51,7 @@ export function setStatus(id, status) {
     for (const k of db.tasks.filter(k => k.status === 'Open' && k.title.includes(`(${b.code})`))) k.status = 'Done';
   }
   if (status === 'Sold out' && b.status !== 'Sold out') makeDirty(tank(b.tankId));
+  if (status !== b.status) logAct(`Batch to ${status}`, b.code);
   b.status = status;
   if (!IN_TANK.includes(status) && status !== 'Planned' && !b.readyDate) { Object.assign(b, { readyDate: today(), dutyRate: db.settings.exciseBasis === 'Removal' ? 0 : db.settings.exciseRate, dutyL: +(b.volume - batchLoss(b)).toFixed(2) }); toast(db.settings.exciseBasis === 'Removal' ? `${b.code} is ready. Excise books as it is sold or dispatched` : `${b.code} booked in the excise register`); }
   commit();
@@ -158,7 +159,6 @@ const BREW_FIELDS = [
   { k: 'og', label: 'Original gravity', type: 'number', step: '0.001', blank: 1 }, { k: 'volume', label: 'Volume into fermenter (L)', type: 'number', blank: 1 },
   { k: 'pitchTemp', label: 'Pitch temperature (°C)', type: 'number', blank: 1 }, { k: 'notes', label: 'Notes', wide: 1 },
 ];
-const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 
 export const actions = {
   go(hash) { location.hash = hash; },
@@ -212,7 +212,7 @@ export const actions = {
     const b = db.batches.find(x => x.id === id);
     if (db.packs.some(p => p.batchId === id)) return toast('This batch has been packaged, so it cannot be deleted');
     if (b.readyDate) return toast(`${b.code} is booked in the excise register, so it cannot be deleted`);
-    if (db.losses.some(l => l.batchId === id)) return toast(`${b.code} has beer losses recorded, so it cannot be deleted`);
+    if (db.losses.some(l => l.batchId === id && !l.voided)) return toast(`${b.code} has beer losses recorded, so it cannot be deleted`);
     if (!confirm(`Delete ${b.code}?${b.issued ? ' Its ingredients go back to the lots they came from.' : ''}`)) return;
     for (const i of b.issues) { const m = mat(i.id); if (m) restore(m, i.lots.length ? i.lots : [{ lotId: '', qty: i.qty, cost: i.cost }], `Returned from ${b.code}`); }
     db.batches = db.batches.filter(x => x.id !== id);

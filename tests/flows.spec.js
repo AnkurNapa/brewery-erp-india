@@ -564,6 +564,47 @@ test('41 audit wave 1: stock, tank, excise and form controls', async ({ page }) 
   expect(await run(page, async () => (await import('/js/calc.js')).beerStock().map(x => +x.total.toFixed(1)))).toEqual(before);
 });
 
+test('42 audit wave 2: credit notes, reversals, voids, lock date and activity log', async ({ page }) => {
+  await fresh(page, 'sales');
+  const taxBefore = await run(page, async () => { const c = await import('/js/calc.js'), s = await import('/js/store.js'); const inv = s.db.sales.find(x => x.no === 'HM-0001'); return { month: inv.date.slice(0, 7), vat: c.invoice(inv).vat }; });
+  // Cancel an invoice: a credit note reverses it today, the original keeps its number.
+  await page.locator('[data-seg="period"][data-v="all"]').click();
+  await page.locator('tr', { hasText: 'HM-0001' }).getByRole('button', { name: 'Cancel' }).click();
+  await sheet(page, { reason: 'Wrong table billed' });
+  const cn = await db(page, d => { const o = d.sales.find(x => x.no === 'HM-0001'), c = d.sales.find(x => x.id === o.cancelledBy); return { no: c.no, type: c.type, ref: c.ref, date: c.date, qty: c.lines[0].qty + o.lines[0].qty }; });
+  expect(cn).toMatchObject({ no: 'CN-0001', type: 'Credit note', ref: 'HM-0001', qty: 0 });
+  expect(await db(page, d => d.sales.some(x => x.no === 'HM-0001'))).toBe(true);
+  await expect(page.locator('tr', { has: page.locator('td.code', { hasText: /^HM-0001$/ }) })).toContainText('Cancelled by CN-0001');
+
+  // Cancel a dispatch: kegs back to Filled, a reversal is dated today.
+  await go(page, 'dispatch');
+  await page.locator('[data-seg="period"][data-v="all"]').click();
+  await page.locator('tr', { hasText: 'D-0001' }).getByRole('button', { name: 'Cancel' }).click();
+  await sheet(page, { reason: 'Bar closed' });
+  expect(await db(page, d => ['K-002', 'K-003'].map(c => d.kegs.find(k => k.code === c).status))).toEqual(['Filled', 'Filled']);
+  expect(await db(page, d => d.dispatches.find(x => x.no === 'D-0001-R').lines.map(l => l.qty))).toEqual([-1, -1, -120]);
+
+  // Void a loss: it stays listed and its litres come back.
+  const loss = async () => run(page, async () => { const c = await import('/js/calc.js'), s = await import('/js/store.js'); return c.batchLoss(s.db.batches.find(b => b.code === 'B-002')); });
+  const l0 = await loss();
+  await go(page, 'losses');
+  await page.locator('[data-seg="period"][data-v="all"]').click();
+  await page.locator('tr', { hasText: 'FV-3 to BBT-2' }).getByRole('button', { name: 'Void' }).click();
+  await sheet(page, { reason: 'Entered twice' });
+  expect(await loss()).toBe(l0 - 5);
+  await expect(page.locator('tr', { hasText: 'FV-3 to BBT-2' })).toContainText('Voided');
+
+  // Lock the books: nothing dated on or before the lock can be posted.
+  await run(page, async () => { const s = await import('/js/store.js'), u = await import('/js/util.js'); s.db.settings.lockedUntil = u.daysAgo(1); s.commit(); });
+  await go(page, 'records');
+  await page.getByRole('button', { name: 'Record utility' }).click();
+  await sheet(page, { date: await page.evaluate(() => import('/js/util.js').then(u => u.daysAgo(3))), cost: 500 });
+  await expect(page.locator('#toast')).toContainText('Books are locked');
+  await page.keyboard.press('Escape');
+
+  expect(await db(page, d => d.log.map(e => e.action))).toEqual(['Cancelled invoice', 'Cancelled dispatch', 'Voided loss record']);
+});
+
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {
   await fresh(page, 'partners');
   await page.locator('tr', { hasText: 'Koramangala Social' }).getByRole('button', { name: 'Edit' }).click();

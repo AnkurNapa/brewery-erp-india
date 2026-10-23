@@ -1,5 +1,5 @@
 // Raw materials, purchasing and MRP, equipment register with QR, keg map and turns, keg scan pages.
-import { db, next, commit, consume, addLot, usableQty, KEG_STATES, moveKeg } from '../store.js';
+import { db, remove, next, commit, consume, addLot, usableQty, KEG_STATES, moveKeg } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, addDays, daysBetween, downloadCsv } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, metric, openForm, qr, seg } from '../ui.js';
 import { mat, rec, vendor, cust, keg, tank, reserved, mrp, approvedQty, pendingLots, expiryOf, kegStats } from '../calc.js';
@@ -8,7 +8,6 @@ import { periodSeg, periodRange, periodText } from '../period.js';
 
 const TYPES = ['Malt', 'Hops', 'Yeast', 'Adjunct', 'Chemical', 'Packaging', 'Gas', 'Other'];
 const vendorOpts = () => [{ v: '', t: 'None' }, ...db.vendors.map(v => ({ v: v.id, t: v.name }))];
-const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 let matFilter = 'All';
 
 // One pin per customer with a map location. Red when a keg there is over 30 days out, grey when none are out.
@@ -190,7 +189,7 @@ export const actions = {
     openForm({ title: `Use or waste ${m.name}`, vals: { date: today(), reason: 'Wastage' },
       fields: [{ k: 'qty', label: `Quantity (${m.unit})`, type: 'number', req: 1 }, { k: 'date', label: 'Date', type: 'date' }, { k: 'reason', label: 'Reason', list: ['Wastage', 'Spillage', 'Expired', 'Lab sample', 'Cleaning'] }],
       // Writing off can take rejected or pending stock too: that is usually what is being thrown away.
-      onSave: v => { if (!consume(m, v.qty, { allowPending: true, allowRejected: true })) { toast(`Only ${num(m.qty, 2)} ${m.unit} in stores`); return false; } db.wastage.push({ id: uid(), date: v.date, kind: 'Material', ref: m.id, qty: v.qty, reason: v.reason }); } });
+      onSave: v => { const lots = consume(m, v.qty, { allowPending: true, allowRejected: true }); if (!lots) { toast(`Only ${num(m.qty, 2)} ${m.unit} in stores`); return false; } db.wastage.push({ id: uid(), date: v.date, kind: 'Material', ref: m.id, qty: v.qty, reason: v.reason, lots }); } });
   },
 
   newPo() { poForm({ vendorId: db.vendors[0]?.id || '', date: today() }, []); },
@@ -208,7 +207,7 @@ export const actions = {
     toast(`${p.no} received into stores, waiting for QC`);
     commit();
   },
-  delPo(id) { remove('pos', id, 'purchase order'); },
+  delPo(id) { if (db.pos.find(p => p.id === id)?.status === 'Received') return toast('This order has been received into stores, so it stays on file'); remove('pos', id, 'purchase order'); },
 
   newKeg() {
     openForm({ title: 'Add kegs', vals: { size: 30, count: 1, codes: '' }, fields: [{ k: 'size', label: 'Size', type: 'select', options: [{ v: 20, t: '20 L' }, { v: 30, t: '30 L' }, { v: 50, t: '50 L' }] }, { k: 'count', label: 'How many', type: 'number' },

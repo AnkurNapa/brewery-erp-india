@@ -1,18 +1,17 @@
 // Quality and control: CIP log, beer losses, stock take with reconciliation.
-import { db, next, commit, persist, consume, addLot, usableQty, CIP_CYCLES, LOSS_STAGES } from '../store.js';
+import { db, remove, next, commit, persist, consume, addLot, usableQty, logAct, guardLock, CIP_CYCLES, LOSS_STAGES } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysAgo, daysBetween } from '../util.js';
-import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
+import { head, btn, link, pill, panel, table, kpi, openForm, seg, voidForm } from '../ui.js';
 import { periodSeg, periodRange, periodText, inPeriod } from '../period.js';
 import { mat, rec, tank, recipeCalc, tankLeft, tankFit, lastCip, lossBalance, packLeft, beerReconcile } from '../calc.js';
 
-const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 const targetName = id => tank(id)?.name || db.equipment.find(e => e.id === id)?.name || 'Deleted';
 const occupied = id => db.batches.some(b => b.tankId === id && !['Sold out', 'Planned'].includes(b.status));
 let countMode = 'count';
 
 export const views = {
   cip() {
-    const from = daysAgo(30), recent = db.cip.filter(c => c.date >= from);
+    const from = daysAgo(30), recent = db.cip.filter(c => c.date >= from && !c.voided);
     const chemCost = sum(recent, c => c.chemQty * (mat(c.chemicalId)?.cost || 0));
     const dirty = db.tanks.filter(t => t.hygiene === 'Dirty').length;
     return head('CIP', `Clean in place for every tank. A tank must be sanitised within ${db.settings.cipDays || 3} days before it is filled.`, btn('Log CIP', 'logCip'))
@@ -24,14 +23,14 @@ export const views = {
           <td class="acts">${busy ? '' : link('Log CIP', 'logCip', t.id)}</td></tr>`;
       })))
       + panel('CIP log', table(['Date', 'Vessel', 'Cycle', { t: 'Strength', n: 1 }, { t: 'Temp', n: 1 }, { t: 'Minutes', n: 1 }, 'Chemical', 'Operator', 'Check', ''],
-        [...db.cip].sort((a, b) => b.date.localeCompare(a.date)).map(c => `<tr><td>${fmtDate(c.date)}</td><td>${esc(targetName(c.targetId))}</td><td>${esc(c.cycle)}</td><td class="n">${c.conc === '' ? '' : c.conc + '%'}</td>
+        [...db.cip].sort((a, b) => b.date.localeCompare(a.date)).map(c => `<tr class="${c.voided ? 'voided' : ''}"><td>${fmtDate(c.date)}</td><td>${esc(targetName(c.targetId))}</td><td>${esc(c.cycle)}</td><td class="n">${c.conc === '' ? '' : c.conc + '%'}</td>
           <td class="n">${c.temp === '' ? '' : c.temp + '°C'}</td><td class="n">${c.mins}</td><td>${c.chemicalId ? `${esc(mat(c.chemicalId)?.name)} ${num(c.chemQty, 2)} ${esc(mat(c.chemicalId)?.unit || '')}` : ''}</td><td>${esc(c.operator)}</td>
-          <td>${pill(c.result, c.result === 'Pass' ? 'ok' : 'low')}${c.note ? `<small class="sub">${esc(c.note)}</small>` : ''}</td><td class="acts">${link('Delete', 'delCip', c.id, 'del')}</td></tr>`)));
+          <td>${pill(c.result, c.result === 'Pass' ? 'ok' : 'low')}${c.note ? `<small class="sub">${esc(c.note)}</small>` : ''}${c.voided ? `<small class="sub void">Voided ${fmtDate(c.voided)}: ${esc(c.voidReason)}</small>` : ''}</td><td class="acts">${c.voided ? '' : link('Void', 'voidCip', c.id, 'del')}</td></tr>`)));
   },
 
   losses() {
     const range = periodRange(), target = db.settings.lossTarget || 5, allow = db.settings.lossAllow || 0;
-    const recs = db.losses.filter(l => inPeriod(l.date, range)), legacy = db.wastage.filter(w => w.kind === 'Beer' && inPeriod(w.date, range));
+    const shown = db.losses.filter(l => inPeriod(l.date, range)), recs = shown.filter(l => !l.voided), legacy = db.wastage.filter(w => w.kind === 'Beer' && !w.voided && inPeriod(w.date, range));
     const bs = db.batches.filter(b => b.issued && (inPeriod(b.date, range) || recs.some(l => l.batchId === b.id)));
     const total = sum(recs, l => l.litres) + sum(legacy, w => w.qty), brewed = sum(bs, b => b.volume) || 1;
     const byStage = LOSS_STAGES.map(st => [st, sum(recs.filter(l => l.stage === st), l => l.litres) + (st === 'Taproom' ? sum(legacy, w => w.qty) : 0)]).filter(([, l]) => l);
@@ -45,11 +44,11 @@ export const views = {
           const lb = lossBalance(b);
           return `<tr><td><a class="code" href="#blr/${b.id}">${esc(b.code)}</a></td><td>${esc(rec(b.recipeId)?.name || '')}</td><td class="n">${num(b.volume)}</td><td class="n">${num(lb.total)}</td><td class="n"><span class="${lb.pct > target ? 'bad' : 'good'}">${num(lb.pct)}%</span></td></tr>`;
         })))}</div>`
-      + panel('Loss records', table(['Date', 'Batch', 'Stage', { t: 'Litres', n: 1 }, 'Reason', ''], [...recs].sort((a, b) => b.date.localeCompare(a.date)).map(l => {
+      + panel('Loss records', table(['Date', 'Batch', 'Stage', { t: 'Litres', n: 1 }, 'Reason', ''], [...shown].sort((a, b) => b.date.localeCompare(a.date)).map(l => {
         const b = db.batches.find(x => x.id === l.batchId);
-        return `<tr><td>${fmtDate(l.date)}</td><td><a class="code" href="#blr/${l.batchId}">${esc(b?.code || '')}</a></td><td>${pill(l.stage, l.stage === 'Unexplained' ? 'low' : 'grey')}</td><td class="n">${num(l.litres)}</td><td>${esc(l.reason)}</td>
-          <td class="acts">${l.stage === 'Unexplained' ? '' : link('Delete', 'delLoss', l.id, 'del')}</td></tr>`;
-      })) + '<p class="note">Record a loss from the tank card or the batch record. Transfer and packaging losses are captured automatically. Unexplained losses come from stock takes and cannot be deleted.</p>');
+        return `<tr class="${l.voided ? 'voided' : ''}"><td>${fmtDate(l.date)}</td><td><a class="code" href="#blr/${l.batchId}">${esc(b?.code || '')}</a></td><td>${pill(l.stage, l.stage === 'Unexplained' ? 'low' : 'grey')}</td><td class="n">${num(l.litres)}</td><td>${esc(l.reason)}${l.voided ? `<small class="sub void">Voided ${fmtDate(l.voided)}: ${esc(l.voidReason)}</small>` : ''}</td>
+          <td class="acts">${l.stage === 'Unexplained' || l.voided ? '' : link('Void', 'voidLoss', l.id, 'del')}</td></tr>`;
+      })) + '<p class="note">Record a loss from the tank card or the batch record. Transfer and packaging losses are captured automatically. Unexplained losses come from stock takes and cannot be voided. A voided loss stays listed and puts its litres back.</p>');
   },
 
   stocktake() {
@@ -123,8 +122,9 @@ export const actions = {
         toast(v.result === 'Pass' ? `${targetName(v.targetId)} ${t ? t.hygiene.toLowerCase() : 'cleaned'}` : `${targetName(v.targetId)} failed, repeat the cycle`);
       } });
   },
-  delCip(id) { remove('cip', id, 'CIP record'); },
-  delLoss(id) { remove('losses', id, 'loss record'); },
+  // A voided passing clean no longer counts, so the vessel goes back to Dirty until it is cleaned again.
+  voidCip(id) { const c = db.cip.find(x => x.id === id); voidForm('CIP record', c, () => { const t = tank(c.targetId); if (t && c.result === 'Pass' && !occupied(t.id)) t.hygiene = 'Dirty'; }); },
+  voidLoss(id) { voidForm('loss record', db.losses.find(x => x.id === id)); },
 
   newCount() {
     if (db.counts.some(c => c.status === 'Open') && !confirm('Another count is still open. Start a new one anyway?')) return;
@@ -149,6 +149,7 @@ export const actions = {
   delCount(id) { remove('counts', id, 'open count'); },
   postCount(id) {
     const c = db.counts.find(x => x.id === id), changes = c.lines.filter(l => l.counted !== '' && Math.abs(l.counted - l.system) > 1e-6);
+    if (!guardLock(c.date)) return;
     const missing = changes.filter(l => !l.reason.trim());
     if (missing.length) { countMode = 'review'; dispatchEvent(new Event('db')); return toast(`Add a reason for ${missing.length} line${missing.length > 1 ? 's' : ''} with a variance`); }
     // Stock may have moved since the count was opened. Variances are worked out against today's figures, not the snapshot,
@@ -166,6 +167,7 @@ export const actions = {
       db.adjustments.push({ id: uid(), date: c.date, countId: c.id, ref: l.ref, label: l.label, delta: +d.toFixed(3), value: +(d * l.cost).toFixed(2), reason: l.reason });
     }
     c.status = 'Posted';
+    logAct('Posted stock take', c.no, `${changes.length} adjustment${changes.length === 1 ? '' : 's'}`);
     toast(`${c.no} posted with ${changes.length} adjustment${changes.length === 1 ? '' : 's'}`);
     commit();
   },

@@ -1,6 +1,6 @@
 // Rendering helpers shared by every screen.
 import { esc, num, $, toast, today } from './util.js';
-import { commit } from './store.js';
+import { commit, locked, guardLock, logAct, db } from './store.js';
 
 export const head = (title, sub = '', btn = '') =>
   `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${btn ? `<div class="head-btns">${btn}</div>` : ''}</div>`;
@@ -84,6 +84,8 @@ export function openForm({ title, fields = [], vals = {}, onSave, lines: L, note
     if (rows.some(r => (L?.cols ?? []).some(c => !c.text && r[c.k] < 0))) { toast('Line quantities and prices cannot be negative'); return; }
     const late = fields.find(f => f.type === 'date' && f.k === 'date' && !f.future && v[f.k] > today());
     if (late) { toast(`${late.label} cannot be in the future`); form.elements[late.k].focus(); return; }
+    const shut = fields.find(f => f.type === 'date' && f.k === 'date' && !f.future && locked(v[f.k]));
+    if (shut) { toast(`Books are locked up to ${db.settings.lockedUntil}. Pick a later date or change the lock in Settings.`); form.elements[shut.k].focus(); return; }
     if (onSave(v, rows) === false) return;
     m.close();
     commit();
@@ -125,3 +127,10 @@ export function qr(code) {
 export const kpi = (value, label, cls = '') => `<div class="kpi ${cls}"><b>${value}</b><span>${label}</span></div>`;
 export const metric = (value, label) => `<span class="metric"><b>${value}</b>${esc(label)}</span>`;
 export const fmtL = v => `${num(v, 0)} L`;
+
+// Voiding keeps a record on file, struck through, with its reason. Totals skip voided records, so the effect is reversed.
+export function voidForm(what, r, after = () => {}) {
+  if (!guardLock(r.date)) return;
+  openForm({ title: `Void this ${what}`, fields: [{ k: 'reason', label: 'Reason', req: 1, wide: 1 }], note: 'The record stays on file with this reason. It stops counting in every total.',
+    onSave: v => { Object.assign(r, { voided: today(), voidReason: v.reason }); after(r); logAct(`Voided ${what}`, r.date, v.reason); } });
+}

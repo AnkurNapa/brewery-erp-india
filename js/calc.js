@@ -95,7 +95,7 @@ export const issueList = (r, volume) => r.items.map(i => {
   return { id: i.id, qty, cost: +(qty * (mat(i.id)?.cost || 0)).toFixed(2) };
 });
 export const batchCost = b => sum(b.issues, i => i.cost);
-export const batchLoss = b => sum(db.losses.filter(l => l.batchId === b.id), l => l.litres);
+export const batchLoss = b => sum(db.losses.filter(l => l.batchId === b.id && !l.voided), l => l.litres);
 // Duty is on the litres booked at Ready. A batch dumped before Ready books 0 L, not its brewed volume.
 export const duty = b => (b.readyDate ? b.dutyL * b.dutyRate : 0);
 // Excise on removal: booked on taproom pours and dispatches when Settings says so.
@@ -160,7 +160,7 @@ const tapL = (r, from = '') => sum(db.sales.filter(s => s.date >= from).flatMap(
 function draughtL(r) {
   const bs = db.batches.filter(b => b.recipeId === r.id);
   const produced = sum(bs.filter(b => b.readyDate), b => b.volume - batchLoss(b));
-  const wasted = sum(db.wastage.filter(w => w.kind === 'Beer' && w.ref === r.id), w => w.qty);
+  const wasted = sum(db.wastage.filter(w => w.kind === 'Beer' && w.ref === r.id && !w.voided), w => w.qty);
   return produced - sum(bs, batchPackedL) - tapL(r) - wasted;
 }
 // Litres physically in a tank. Ready beer drains oldest batch first.
@@ -212,12 +212,12 @@ export function tankFit(t) {
   if (age > days) return { ok: false, why: `${t.name} was sanitised ${age} days ago (limit ${days})` };
   return { ok: true, why: '' };
 }
-export const lastCip = (targetId, before = '9999') => db.cip.filter(c => c.targetId === targetId && c.date <= before).sort((a, b) => b.date.localeCompare(a.date))[0];
+export const lastCip = (targetId, before = '9999') => db.cip.filter(c => c.targetId === targetId && c.date <= before && !c.voided).sort((a, b) => b.date.localeCompare(a.date))[0];
 
 // ---------- losses ----------
 export function lossBalance(b) {
   const r = rec(b.recipeId), stages = {};
-  for (const l of db.losses.filter(l => l.batchId === b.id)) stages[l.stage] = (stages[l.stage] || 0) + l.litres;
+  for (const l of db.losses.filter(l => l.batchId === b.id && !l.voided)) stages[l.stage] = (stages[l.stage] || 0) + l.litres;
   const brewhouse = r ? Math.max(0, r.size - b.volume) : 0, total = sum(Object.values(stages));
   return { v0: b.volume, brewhouse, stages, total, pct: b.volume ? total / b.volume * 100 : 0 };
 }
@@ -230,7 +230,7 @@ export function beerReconcile(count) {
   const brewed = sum(db.batches.filter(b => b.issued && inP(b.date)), b => b.volume);
   const sold = sum(db.sales.filter(s => inP(s.date)).flatMap(s => s.lines), lineL);
   const packaged = sum(db.packs.filter(p => inP(p.date)), packedL);
-  const lost = sum(db.losses.filter(l => inP(l.date) && l.stage !== 'Unexplained'), l => l.litres) + sum(db.wastage.filter(w => w.kind === 'Beer' && inP(w.date)), w => w.qty);
+  const lost = sum(db.losses.filter(l => inP(l.date) && l.stage !== 'Unexplained' && !l.voided), l => l.litres) + sum(db.wastage.filter(w => !w.voided && w.kind === 'Beer' && inP(w.date)), w => w.qty);
   const opening = prev ? beer(prev) : null, expected = opening == null ? null : opening + brewed - sold - packaged - lost;
   return { prev, opening, brewed, sold, packaged, lost, expected, counted: beer(count) };
 }

@@ -46,26 +46,27 @@ const SCHEMA = {
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
     brew: obj({ mashTemp: OPT, steps: v => (Array.isArray(v) ? v.map(OPT) : []), preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
-  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID }) },
+  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID }), type: ONE(['Invoice', 'Credit note']), ref: STR, reason: STR, cancelledBy: ID },
   kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE, history: LIST({ date: DATE, status: ONE(KEG_STATES), batchId: ID, customerId: ID }) },
   equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM },
   customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR, lat: GEO(90), lng: GEO(180) },
   vendors: { id: ID, name: STR, gstin: STR, phone: STR, supplies: STR },
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
   packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, adjusted: NUM, kegIds: IDS },
-  dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM, batchId: ID }) },
+  dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM, batchId: ID }), ref: STR, reason: STR, cancelledBy: ID },
   tasks: { id: ID, title: STR, type: ONE(TASK_TYPES), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
-  wastage: { id: ID, date: DATE, kind: ONE(['Beer', 'Material']), ref: ID, qty: NUM, reason: STR },
-  cip: { id: ID, date: DATE, targetId: ID, cycle: ONE(CIP_CYCLES), conc: OPT, temp: OPT, mins: OPT, chemicalId: ID, chemQty: NUM, operator: STR, result: ONE(['Pass', 'Fail']), note: STR },
-  losses: { id: ID, date: DATE, batchId: ID, stage: ONE(LOSS_STAGES), litres: NUM, reason: STR },
+  wastage: { id: ID, date: DATE, kind: ONE(['Beer', 'Material']), ref: ID, qty: NUM, reason: STR, lots: LIST({ lotId: ID, qty: NUM, cost: NUM }), voided: DATE, voidReason: STR },
+  cip: { id: ID, date: DATE, targetId: ID, cycle: ONE(CIP_CYCLES), conc: OPT, temp: OPT, mins: OPT, chemicalId: ID, chemQty: NUM, operator: STR, result: ONE(['Pass', 'Fail']), note: STR, voided: DATE, voidReason: STR },
+  losses: { id: ID, date: DATE, batchId: ID, stage: ONE(LOSS_STAGES), litres: NUM, reason: STR, voided: DATE, voidReason: STR },
   counts: { id: ID, no: STR, date: DATE, status: ONE(['Open', 'Posted']), lines: LIST({ ref: REF, label: STR, unit: STR, system: NUM, counted: OPT, cost: NUM, reason: STR }) },
   adjustments: { id: ID, date: DATE, countId: ID, ref: REF, label: STR, delta: NUM, value: NUM, reason: STR },
+  log: { ts: STR, by: STR, action: STR, ref: STR, note: STR },
 };
 export const BREWHOUSE_TYPES = ['2 vessel', '3 vessel', '4 vessel'];
 const BREWHOUSE = obj({ type: ONE(BREWHOUSE_TYPES), lengthHL: NUM, mashTun: NUM, lauterTun: NUM, kettle: NUM, whirlpool: BOOL, boilRate: NUM, boilMins: NUM, deadSpace: NUM, cycleHrs: NUM, hlt: NUM, hltTemp: NUM, clt: NUM, cltTemp: NUM, hx: STR });
-const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, lastBackup: DATE };
-const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM };
+const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, lastBackup: DATE, user: STR, lockedUntil: DATE };
+const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM, cn: NUM };
 
 export function clean(d) {
   const out = { settings: obj(SETTINGS)(d?.settings), seq: obj(SEQ)(d?.seq) };
@@ -123,6 +124,7 @@ export const isDemo = () => db.settings.gstin === demo().settings.gstin;
 export function startEmpty() {
   const s = demo().settings;
   replace({ settings: { ...s, name: 'My Brewery', gstin: '', address: '', state: '', prefix: '', exciseRate: 0, vat: 0, tradeRateL: 0, kegValue: 0, lastBackup: '', brewhouse: { ...s.brewhouse, lengthHL: 0, mashTun: 0, lauterTun: 0, kettle: 0, hlt: 0, clt: 0 } } });
+  logAct('Started an empty brewery');
   commit();
 }
 // Every keg move goes through here so each keg keeps its own trail: filled with what, sent where, back when.
@@ -136,6 +138,26 @@ export function undoKeg(k, status, changes = {}) {
   k.history = k.history.slice(0, -1);
   Object.assign(k, changes, { status, since: k.history.at(-1)?.date || k.since });
 }
+// ---------- controls ----------
+// Books locked up to a date: nothing dated on or before it can be posted, deleted or voided.
+// In a browser-only app this guards against mistakes, not against someone editing the browser's storage.
+export const locked = date => !!db.settings.lockedUntil && !!date && date <= db.settings.lockedUntil;
+const lockMsg = () => `Books are locked up to ${db.settings.lockedUntil}. Change the lock date in Settings first.`;
+// Who did what and when, kept with the data and in every backup. The name comes from Settings on this device.
+// ponytail: last 2000 entries; export the CSV if a longer trail is needed.
+export function logAct(action, ref = '', note = '') {
+  const ts = new Date();
+  db.log = [...db.log, { ts: `${today()} ${String(ts.getHours()).padStart(2, '0')}:${String(ts.getMinutes()).padStart(2, '0')}`, by: db.settings.user || '', action, ref, note }].slice(-2000);
+}
+export function remove(coll, id, what) {
+  const r = db[coll].find(x => x.id === id);
+  if (locked(r?.date)) return toast(lockMsg());
+  if (!confirm(`Delete this ${what}?`)) return;
+  db[coll] = db[coll].filter(x => x.id !== id);
+  logAct(`Deleted ${what}`, r?.no || r?.code || r?.name || r?.title || r?.date || '');
+  commit();
+}
+export function guardLock(date) { if (!locked(date)) return true; toast(lockMsg()); return false; }
 export function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { toast('This browser blocked saving. Export a backup from Settings.'); }
 }

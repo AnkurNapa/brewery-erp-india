@@ -1,7 +1,7 @@
 // Utilities and wastage, reports, excise and tax, settings and backup.
-import { db, commit, replace, clean, isBackup, startEmpty } from '../store.js';
+import { db, remove, restore, logAct, commit, replace, clean, isBackup, startEmpty } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo, daysBetween, downloadCsv } from '../util.js';
-import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar } from '../ui.js';
+import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar, voidForm } from '../ui.js';
 import { demo } from '../demo.js';
 import { consent, setConsent } from '../analytics.js';
 import { periodSeg, periodRange, periodText, inPeriod, periodFile } from '../period.js';
@@ -9,7 +9,6 @@ import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, 
 
 const UTIL_TYPES = { Electricity: 'kWh', Water: 'kL', 'LPG / PNG': 'kg', CO2: 'kg', Diesel: 'L', Other: '' };
 let reportTab = 'business';
-const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 
 const REPORTS = {
   business() {
@@ -32,16 +31,16 @@ const REPORTS = {
   consumption() {
     const used = {};
     for (const b of db.batches.filter(b => inPeriod(b.date))) for (const i of b.issues) { const u = (used[i.id] ||= { qty: 0, cost: 0, waste: 0 }); u.qty += i.qty; u.cost += i.cost; }
-    for (const w of db.wastage.filter(w => w.kind === 'Material' && inPeriod(w.date))) (used[w.ref] ||= { qty: 0, cost: 0, waste: 0 }).waste += w.qty;
+    for (const w of db.wastage.filter(w => w.kind === 'Material' && !w.voided && inPeriod(w.date))) (used[w.ref] ||= { qty: 0, cost: 0, waste: 0 }).waste += w.qty;
     const beer = beerStock();
     return panel('Raw material consumption', table(['Material', { t: 'Issued to batches', n: 1 }, { t: 'Wasted', n: 1 }, { t: 'Cost', n: 1 }],
       Object.entries(used).map(([id, u]) => `<tr><td>${esc(mat(id)?.name || 'Deleted')}</td><td class="n">${num(u.qty, 2)} ${esc(mat(id)?.unit || '')}</td><td class="n">${u.waste ? num(u.waste, 2) : ''}</td><td class="n">${inr0(u.cost)}</td></tr>`)))
       + panel('Beer consumption, last 14 days', table(['Beer', { t: 'Per day', n: 1 }, { t: 'Wasted', n: 1 }],
-        beer.map(s => `<tr><td>${esc(s.r.name)}</td><td class="n">${num(s.rate)} L</td><td class="n">${num(sum(db.wastage.filter(w => w.kind === 'Beer' && w.ref === s.r.id), w => w.qty))} L</td></tr>`)));
+        beer.map(s => `<tr><td>${esc(s.r.name)}</td><td class="n">${num(s.rate)} L</td><td class="n">${num(sum(db.wastage.filter(w => w.kind === 'Beer' && !w.voided && w.ref === s.r.id), w => w.qty))} L</td></tr>`)));
   },
   dispatch() {
     const by = {};
-    for (const d of db.dispatches.filter(d => inPeriod(d.date))) { const c = (by[d.customerId] ||= { n: 0, kegs: 0, units: 0, l: 0 }); c.n++; for (const l of d.lines) { if (l.ref.startsWith('k:')) c.kegs++; else c.units += l.qty; c.l += l.litres; } }
+    for (const d of db.dispatches.filter(d => inPeriod(d.date))) { const c = (by[d.customerId] ||= { n: 0, kegs: 0, units: 0, l: 0 }); const sign = d.ref ? -1 : 1; c.n += sign; for (const l of d.lines) { if (l.ref.startsWith('k:')) c.kegs += sign; else c.units += l.qty; c.l += l.litres; } }
     return panel('Dispatch summary', table(['Customer', { t: 'Dispatches', n: 1 }, { t: 'Kegs', n: 1 }, { t: 'Packs', n: 1 }, { t: 'Litres', n: 1 }, { t: 'Kegs out now', n: 1 }],
       Object.entries(by).map(([id, c]) => `<tr><td>${esc(cust(id)?.name || '')}</td><td class="n">${c.n}</td><td class="n">${c.kegs}</td><td class="n">${c.units}</td><td class="n">${num(c.l)}</td><td class="n">${db.kegs.filter(k => k.customerId === id && k.status === 'At customer').length}</td></tr>`)));
   },
@@ -79,8 +78,8 @@ export const views = {
     return head('Utilities and wastage', 'Record utilities for an accurate COGS. Beer losses have their own screen under Quality and control.', `${btn('Beer losses', 'go', 'losses', 'ghost')} ${btn('Record utility', 'newUtil')}`)
       + `<div class="kpis four">${Object.keys(UTIL_TYPES).slice(0, 4).map(t => kpi(inr0(sum(db.utilities.filter(u => u.type === t && u.date >= from), u => u.cost)), `${t}, 30 days`)).join('')}</div>`
       + panel('Utilities', table(['Date', 'Type', { t: 'Quantity', n: 1 }, { t: 'Cost', n: 1 }, ''], [...db.utilities].sort((a, b) => b.date.localeCompare(a.date)).map(u => `<tr><td>${fmtDate(u.date)}</td><td>${esc(u.type)}</td><td class="n">${num(u.qty)} ${esc(u.unit)}</td><td class="n">${inr0(u.cost)}</td><td class="acts">${link('Delete', 'delUtil', u.id, 'del')}</td></tr>`)))
-      + panel('Wastage', table(['Date', 'Kind', 'Item', { t: 'Quantity', n: 1 }, 'Reason', ''], [...db.wastage].sort((a, b) => b.date.localeCompare(a.date)).map(w => `<tr><td>${fmtDate(w.date)}</td><td>${pill(w.kind, w.kind === 'Beer' ? 'orange' : 'grey')}</td>
-        <td>${esc(w.kind === 'Beer' ? rec(w.ref)?.name : mat(w.ref)?.name)}</td><td class="n">${num(w.qty, 2)} ${w.kind === 'Beer' ? 'L' : esc(mat(w.ref)?.unit || '')}</td><td>${esc(w.reason)}</td><td class="acts">${link('Delete', 'delWaste', w.id, 'del')}</td></tr>`)));
+      + panel('Wastage', table(['Date', 'Kind', 'Item', { t: 'Quantity', n: 1 }, 'Reason', ''], [...db.wastage].sort((a, b) => b.date.localeCompare(a.date)).map(w => `<tr class="${w.voided ? 'voided' : ''}"><td>${fmtDate(w.date)}</td><td>${pill(w.kind, w.kind === 'Beer' ? 'orange' : 'grey')}</td>
+        <td>${esc(w.kind === 'Beer' ? rec(w.ref)?.name : mat(w.ref)?.name)}</td><td class="n">${num(w.qty, 2)} ${w.kind === 'Beer' ? 'L' : esc(mat(w.ref)?.unit || '')}</td><td>${esc(w.reason)}${w.voided ? `<small class="sub void">Voided ${fmtDate(w.voided)}: ${esc(w.voidReason)}</small>` : ''}</td><td class="acts">${w.voided ? '' : link('Void', 'voidWaste', w.id, 'del')}</td></tr>`)));
   },
 
   reports() {
@@ -115,7 +114,8 @@ export const views = {
         <div class="card-acts">${consent() === 'granted' ? btn('Turn analytics off', 'analyticsOff', '', 'ghost') : btn('Allow analytics', 'analyticsOn', '', 'ghost')}</div>`)
       + panel('Backup', `<p class="note">Download everything as one JSON file, or restore it on another computer. ${db.settings.lastBackup ? `Last backup ${fmtDate(db.settings.lastBackup)}, ${daysBetween(db.settings.lastBackup, today())} days ago.` : '<b class="bad">No backup taken yet.</b>'}</p>
         <div class="card-acts wrap">${btn('Export backup', 'exportData', '', 'ghost')}<label class="ghost file">Import backup<input type="file" accept=".json,application/json" id="importFile" hidden></label>
-        ${btn('Load demo brewpub', 'resetDemo', '', 'ghost')}${btn('Start empty', 'clearAll', '', 'ghost danger')}</div>`);
+        ${btn('Load demo brewpub', 'resetDemo', '', 'ghost')}${btn('Start empty', 'clearAll', '', 'ghost danger')}</div>`)
+      + panel('Activity log', db.log.length ? table(['When', 'Who', 'What', 'Ref', 'Note'], [...db.log].reverse().slice(0, 40).map(e => `<tr><td>${esc(e.ts)}</td><td>${esc(e.by)}</td><td>${esc(e.action)}</td><td class="code">${esc(e.ref)}</td><td>${esc(e.note)}</td></tr>`)) : '<p class="empty">Cancellations, voids, deletions, stock takes and lock changes are listed here.</p>', btn('Log CSV', 'csvLog', '', 'ghost'));
   },
 };
 
@@ -134,6 +134,7 @@ export const SETTINGS_FIELDS = [
   { k: 'lossAllow', label: 'Excise loss allowance (%)', type: 'number' },
   { k: 'exciseBasis', label: 'Book excise', type: 'select', options: [{ v: 'Ready', t: 'When a batch is marked Ready' }, { v: 'Removal', t: 'On removal (taproom pour or dispatch)' }] },
   { k: 'tradeRateL', label: 'Trade price (₹ per litre)', type: 'number' }, { k: 'kegValue', label: 'Keg value (₹ each, to price lost kegs)', type: 'number' },
+  { k: 'user', label: 'Your name, for the activity log' }, { k: 'lockedUntil', label: 'Books locked up to (after a filing)', type: 'date' },
 ];
 
 export const actions = {
@@ -148,7 +149,11 @@ export const actions = {
       fields: [{ k: 'ref', label: 'Beer', type: 'select', options: db.recipes.map(r => ({ v: r.id, t: r.name })) }, { k: 'date', label: 'Date', type: 'date' }, { k: 'qty', label: 'Litres', type: 'number', req: 1 }, { k: 'reason', label: 'Reason', list: ['Line flush', 'Spillage', 'Off flavour', 'Quality hold', 'Samples'] }],
       note: 'Material wastage is recorded from Raw materials, Use / waste.', onSave: v => { db.wastage.push({ id: uid(), kind: 'Beer', ...v }); } });
   },
-  delWaste(id) { remove('wastage', id, 'wastage entry'); },
+  // Voiding a material write-off puts the stock back into the lots it came from.
+  voidWaste(id) {
+    const w = db.wastage.find(x => x.id === id);
+    voidForm('wastage entry', w, () => { const m = mat(w.ref); if (w.kind === 'Material' && m) restore(m, w.lots.length ? w.lots : [{ lotId: '', qty: w.qty, cost: w.qty * m.cost }], 'Write-off voided'); });
+  },
 
   csvExcise() {
     downloadCsv('excise-register', ['Basis', 'Date', 'Ref', 'Beer or customer', 'Bulk litres', 'Rate per litre', 'Duty'], [
@@ -160,7 +165,8 @@ export const actions = {
   csvSales() {
     downloadCsv(periodFile('sales'), ['Invoice', 'Date', 'Customer', 'GSTIN', 'Type', 'Beer', 'Food', 'VAT', 'CGST', 'SGST', 'Total'], db.sales.filter(s => inPeriod(s.date)).map(s => { const c = invoice(s); return [s.no, s.date, s.customer, s.gstin, s.dispatchId ? 'Trade' : 'Taproom', ...[c.beer, c.food, c.vat, c.cgst, c.sgst, c.total].map(x => +x.toFixed(2))]; }));
   },
-  csvLosses() { downloadCsv(periodFile('beer-losses'), ['Date', 'Batch', 'Beer', 'Stage', 'Litres', 'Reason'], db.losses.filter(l => inPeriod(l.date)).map(l => { const b = db.batches.find(x => x.id === l.batchId); return [l.date, b?.code || '', rec(b?.recipeId)?.name || '', l.stage, l.litres, l.reason]; })); },
+  csvLosses() { downloadCsv(periodFile('beer-losses'), ['Date', 'Batch', 'Beer', 'Stage', 'Litres', 'Reason', 'Voided', 'Void reason'], db.losses.filter(l => inPeriod(l.date)).map(l => { const b = db.batches.find(x => x.id === l.batchId); return [l.date, b?.code || '', rec(b?.recipeId)?.name || '', l.stage, l.litres, l.reason, l.voided, l.voidReason]; })); },
+  csvLog() { downloadCsv('activity-log', ['When', 'Who', 'What', 'Ref', 'Note'], db.log.map(e => [e.ts, e.by, e.action, e.ref, e.note])); },
   csvAdjust() { downloadCsv('stock-adjustments', ['Date', 'Count', 'Item', 'Change', 'Value', 'Reason'], db.adjustments.map(a => [a.date, db.counts.find(c => c.id === a.countId)?.no || '', a.label, a.delta, a.value, a.reason])); },
   analyticsOn() { setConsent('granted'); document.getElementById('consent').hidden = true; toast('Analytics on. Thank you.'); commit(); },
   analyticsOff() { setConsent('denied'); document.getElementById('consent').hidden = true; toast('Analytics off. The Analytics cookies were removed.'); commit(); },
@@ -173,7 +179,7 @@ export const actions = {
     commit();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   },
-  resetDemo() { if (confirm('Replace all data with the demo brewpub?')) { replace(demo()); commit(); } },
+  resetDemo() { if (confirm('Replace all data with the demo brewpub?')) { replace(demo()); logAct('Loaded demo brewpub'); commit(); } },
   clearAll() {
     if (!confirm('Delete everything and start with an empty brewery? Export a backup first if you need one.')) return;
     startEmpty();
@@ -188,12 +194,16 @@ export function importBackup(file) {
     const issued = { ...db.seq };
     replace(clean(d));
     for (const k in db.seq) db.seq[k] = Math.max(db.seq[k], issued[k] || 1);
+    logAct('Restored backup', file.name);
     commit();
     toast('Backup restored');
   }).catch(() => toast('That file is not a Brewhouse backup'));
 }
 export function saveSettings(form) {
-  Object.assign(db.settings, readForm(form, SETTINGS_FIELDS));
+  const v = readForm(form, SETTINGS_FIELDS), was = db.settings.lockedUntil;
+  if (v.lockedUntil > today()) return toast('The lock date cannot be in the future');
+  Object.assign(db.settings, v);
+  if (v.lockedUntil !== was) logAct(v.lockedUntil ? 'Locked books' : 'Unlocked books', v.lockedUntil || was);
   commit();
   toast('Settings saved');
 }
