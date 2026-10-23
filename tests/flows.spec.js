@@ -379,8 +379,9 @@ test('30 credit: maker, LinkedIn and a way to book a call', async ({ page }) => 
   await fresh(page, 'help');
   await expect(page.locator('.maker-card')).toHaveAttribute('href', 'https://www.linkedin.com/in/ankur-napa');
   await expect(page.locator('.maker-card')).toContainText('Ankur Napa');
-  await expect(page.locator('.maker a[href^="mailto:napaankur@gmail.com?subject"]')).toHaveText('Book a call');
-  await expect(page.locator('main .maker-hero')).toContainText("Facing difficulty? Let's schedule a call.");
+  await expect(page.locator('.maker a[data-wa="sidebar"]')).toHaveAttribute('href', /^https:\/\/wa\.me\/917755909445\?text=/);
+  await expect(page.locator('main .maker-hero a[href^="mailto:napaankur@gmail.com?subject"]')).toHaveText('Book a call by email');
+  await expect(page.locator('main .maker-hero a[data-wa="help"]')).toHaveText('Message on WhatsApp');
 });
 
 test('31 brewery setup: template builds the cellar, recipes check the kit', async ({ page }) => {
@@ -725,4 +726,23 @@ test('36 customer map location: parses lat, long and rejects junk', async ({ pag
   await expect(page.locator('#toast')).toContainText('Map location should look like');
   await sheet(page, { loc: '12.97, 77.59' });
   expect(await db(page, d => { const c = d.customers.find(c => c.name === 'Koramangala Social'); return [c.lat, c.lng]; })).toEqual([12.97, 77.59]);
+});
+
+test('46 leads: WhatsApp setup offer and a personal demo link', async ({ page }) => {
+  await fresh(page, 'dash');
+  const bar = page.locator('.demo-bar a[data-wa="demo_bar"]');
+  await expect(bar).toHaveText('Set it up for me');
+  expect(decodeURIComponent(await bar.getAttribute('href'))).toContain('Brewery name and city');
+  await page.locator('[data-act="startOwn"]').click();
+  await page.goto('/#dash');
+  await expect(page.locator('.setup-offer a[data-wa="get_started"]')).toBeVisible();
+  // A personal link renames only the demo and greets with that name.
+  await page.evaluate(async () => { const s = await import('/js/store.js'); const d = await import('/js/demo.js'); s.replace(d.demo()); s.commit(); });
+  await page.goto('/?brewery=Toit#help');
+  await expect(page.locator('#brand')).toHaveText('Toit');
+  expect(decodeURIComponent(await page.locator('main a[data-wa="help"]').getAttribute('href'))).toContain("I'm from Toit");
+  // A real brewery is never renamed by the link.
+  await page.evaluate(async () => { const s = await import('/js/store.js'); s.startEmpty(); s.db.settings.name = 'Real Brew Co'; s.db.settings.gstin = '29AAAAA0000A1Z5'; s.commit(); });
+  await page.goto('/?brewery=Toit#dash');
+  await expect(page.locator('#brand')).toHaveText('Real Brew Co');
 });

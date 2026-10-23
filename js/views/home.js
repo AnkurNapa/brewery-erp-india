@@ -1,14 +1,14 @@
 // Home dashboard, schedule (calendar, tasks, brew planner).
 import { db, next, commit, IN_TANK, isDemo, startEmpty } from '../store.js';
 import { esc, num, inr0, today, addDays, fmtDate, sum, uid, toast } from '../util.js';
-import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openForm } from '../ui.js';
+import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openForm, wa } from '../ui.js';
 import { kegMap } from './stores.js';
 import { periodSeg, periodRange, periodText, inPeriod, setPeriod } from '../period.js';
 
 // Hidden for this visit only, so a brewer who keeps exploring is reminded next time.
 let demoHidden = false;
 const demoBar = () => (!isDemo() || demoHidden ? '' : `<div class="demo-bar" role="status"><p><b>You're looking at a demo brewpub.</b> Its batches, stock and tax rates are made up.</p>
-  <div class="card-acts">${btn('Start my brewery', 'startOwn')}${btn('Keep exploring', 'hideDemo', '', 'ghost')}</div></div>`);
+  <div class="card-acts">${btn('Start my brewery', 'startOwn')}${wa('Set it up for me', 'demo_bar', 'ghost')}${btn('Keep exploring', 'hideDemo', '', 'ghost')}</div></div>`);
 
 const setupCard = () => {
   const s = db.settings, steps = [
@@ -18,7 +18,8 @@ const setupCard = () => {
     ['First recipe', 'The engine works out gravity, bitterness and cost', db.recipes.length > 0, btn('New recipe', 'newRec', '', 'ghost')],
   ];
   if (steps.every(x => x[2])) return '';
-  return panel('Get started', `<ol class="setup">${steps.map(([t, sub, done, act], i) => `<li class="${done ? 'done' : ''}"><span class="num">${done ? '✓' : i + 1}</span><span class="grow"><b>${t}</b><small class="sub">${sub}</small></span>${done ? '' : act}</li>`).join('')}</ol>`);
+  return panel('Get started', `<ol class="setup">${steps.map(([t, sub, done, act], i) => `<li class="${done ? 'done' : ''}"><span class="num">${done ? '✓' : i + 1}</span><span class="grow"><b>${t}</b><small class="sub">${sub}</small></span>${done ? '' : act}</li>`).join('')}</ol>
+    <div class="setup-offer"><p><b>Rather not type it all in?</b> Send me your Excel sheets and I'll set up your brewery with you on a free 30 minute call.</p>${wa('Message on WhatsApp', 'get_started')}</div>`);
 };
 import { rec, beerStock, invoice, alerts, exciseIn, tankLeft, tankFit } from '../calc.js';
 

@@ -129,6 +129,8 @@ export function load() {
 }
 // The demo is recognised by its fictional GSTIN, so browsers saved before this check still get the demo bar.
 export const isDemo = () => db.settings.gstin === demo().settings.gstin;
+// A real name to greet with: not the demo brewpub and not the empty placeholder.
+export const ownName = () => (n => (n && n !== 'My Brewery' && n !== demo().settings.name ? n : ''))(db.settings.name);
 // An empty brewery keeps only process defaults. Tax rates, prices and the kit are blanked so no demo figure survives.
 export function startEmpty() {
   const s = demo().settings;

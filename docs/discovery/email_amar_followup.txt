@@ -1,0 +1,19 @@
+Hi Amar,
+
+Thank you for your time on our first discussion. It was useful to hear how the team runs batches today. The **MB 37 example**, one base going into four variants with the parent to child link already tracked, told us more than any process chart would have.
+
+To design the system around how your team actually works, we now need a little more from the people on the floor. **The attached document covers it.** In short, we are asking for:
+
+1. Your **top 10 pains**, most painful first.
+2. Answers to the **six questions from each person in the factory** (owner, mead maker, inventory, sales and anyone else involved), for every topic in their role.
+3. The **flow of each process** today, step by step, from raw material receipt through to dispatch, keg returns and excise records.
+4. **Who does which job**: daily and month end work, the records each person keeps and who they hand work to.
+5. **Copies of the registers and sheets** you use today, such as the raw material register, batch sheets for MB 37, the SKU list and the keg sheet.
+
+Section 1 of the document lists what we noted on the call: stock in the winery and outside, raw material use per batch, batch tracking, keg tracing and your SKUs. **Please correct anything we got wrong.**
+
+Short notes are fine. Photos of registers or whiteboards work too. If someone would rather talk it through than write it down, I am happy to get on a short call with them.
+
+I have also attached a short overview of what we have built for **beer, wine and whisky** so the wider team can see who we are.
+
+**Would a week work for sending it back?** Once we have it, we will map the flows and come back with a first view of the system.

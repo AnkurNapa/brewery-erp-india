@@ -1,5 +1,5 @@
 // Help: the daily workflow for each role, every step linked to its screen.
-import { head, seg, panel } from '../ui.js';
+import { head, seg, panel, wa } from '../ui.js';
 import { esc } from '../util.js';
 
 export const ROLES = [
@@ -40,8 +40,8 @@ export const views = {
     const [, title, sections] = ROLES.find(r => r[0] === role);
     return head('Help', 'How each person runs their day in Brewhouse. Every step opens the screen it names.')
       + `<section class="panel maker-hero"><span class="avatar big" aria-hidden="true">AN</span><div class="grow"><p class="maker-kicker">Made by</p><h2>Ankur Napa</h2><p class="sub">Brewer and data builder. I built Brewhouse ERP for Indian microbreweries and brewpubs.</p>
-        <p class="maker-q">Facing difficulty? Let's schedule a call.</p>
-        <div class="card-acts"><a class="primary" href="mailto:napaankur@gmail.com?subject=Brewhouse%20ERP%3A%20let%27s%20schedule%20a%20call">Book a call</a><a class="ghost" href="https://www.linkedin.com/in/ankur-napa" target="_blank" rel="noopener"><span class="in" aria-hidden="true">in</span>LinkedIn profile</a><a class="link" href="mailto:napaankur@gmail.com">napaankur@gmail.com</a></div></div></section>`
+        <p class="maker-q">Want it set up with your own recipes, tanks and stock? Message me for a free 30 minute call.</p>
+        <div class="card-acts">${wa('Message on WhatsApp', 'help')}<a class="ghost" href="mailto:napaankur@gmail.com?subject=Brewhouse%20ERP%3A%20let%27s%20schedule%20a%20call">Book a call by email</a><a class="ghost" href="https://www.linkedin.com/in/ankur-napa" target="_blank" rel="noopener"><span class="in" aria-hidden="true">in</span>LinkedIn profile</a><a class="link" href="mailto:napaankur@gmail.com">napaankur@gmail.com</a></div></div></section>`
       + seg('helpRole', ROLES.map(([k, t]) => [k, t]), role)
       + sections.map(([name, steps]) => panel(`${esc(title)}: ${esc(name)}`, steps.map(([text, href], i) =>
         `<a class="help-step" href="#${href}"><span class="num">${i + 1}</span><span>${esc(text)}</span></a>`).join(''))).join('');

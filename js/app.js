@@ -1,5 +1,5 @@
 // Router and event wiring. Each view module exports views, actions and segs.
-import { db, load, persist } from './store.js';
+import { db, load, persist, isDemo } from './store.js';
 import { esc, $ } from './util.js';
 import { alerts } from './calc.js';
 import * as analytics from './analytics.js';
@@ -58,6 +58,9 @@ const DETAIL = { blr: 'Batch record', recipe: 'Recipe', compare: 'Compare recipe
 const reportView = () => setTimeout(() => { const v = route().view; analytics.pageView(v, TITLES[v] || DETAIL[v] || 'Home'); });
 load();
 analytics.init();
+// ?brewery=Toit puts a prospect's name on the demo for an outreach link. Only the demo is renamed, never a real brewery.
+const guest = new URLSearchParams(location.search).get('brewery')?.trim().slice(0, 40);
+if (guest && isDemo()) { db.settings.name = guest; analytics.track('personal_demo'); }
 if (!analytics.consent()) $('consent').hidden = false;
 addEventListener('db', draw);
 addEventListener('hashchange', () => { depth++; reportView(); $('q').value = ''; $('results').innerHTML = ''; document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
@@ -73,6 +76,7 @@ document.addEventListener('click', e => {
   }
   const out = e.target.closest('a[href]');
   if (out && /linkedin\.com/.test(out.href)) analytics.track('linkedin_click');
+  if (out?.dataset.wa) analytics.track('whatsapp_click', { from: out.dataset.wa });
   if (out && out.href.startsWith('mailto:')) analytics.track(/schedule/i.test(out.href) ? 'book_call_click' : 'email_click');
   if (e.target.closest('dialog')) return;
   if (e.target.closest('[data-more]')) return document.body.classList.toggle('menu');

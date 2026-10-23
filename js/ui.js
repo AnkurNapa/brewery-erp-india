@@ -1,9 +1,13 @@
 // Rendering helpers shared by every screen.
 import { esc, num, $, toast, today } from './util.js';
-import { commit, locked, guardLock, logAct, db } from './store.js';
+import { commit, locked, guardLock, logAct, db, ownName } from './store.js';
 
 export const head = (title, sub = '', btn = '') =>
   `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${btn ? `<div class="head-btns">${btn}</div>` : ''}</div>`;
+// Every "talk to me" button opens WhatsApp with the first line typed, so a brewer only adds their details.
+// data-wa names the button for analytics; the message text never goes there.
+export const waText = () => (n => (n ? `Hi Ankur, I'm from ${n}. Can you help us set up Brewhouse ERP?` : 'Hi Ankur, I run a brewery and would like help setting up Brewhouse ERP. Brewery name and city: '))(ownName());
+export const wa = (label, from, cls = 'primary') => `<a class="${cls}" href="https://wa.me/917755909445?text=${encodeURIComponent(waText())}" target="_blank" rel="noopener" data-wa="${from}">${label}</a>`;
 export const btn = (label, act, id = '', cls = 'primary') => `<button class="${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
 export const link = (label, act, id = '', cls = '') => `<button class="link ${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
 export const pill = (txt, cls = '') => `<span class="pill ${cls}">${esc(txt)}</span>`;
