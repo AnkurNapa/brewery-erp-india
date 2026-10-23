@@ -473,6 +473,16 @@ test('37 navigation: Kegs has its own menu entry and icon', async ({ page }) => 
   await expect(page.locator('#sidenav a[href="#kegs"]')).toHaveAttribute('aria-current', 'page');
 });
 
+test('38 home keg map: shown with located customers, hidden for an empty brewery', async ({ page }) => {
+  await fresh(page, 'dash');
+  await expect(page.locator('section', { hasText: 'Kegs out (3)' }).locator('#kegmap')).toBeVisible();
+  await go(page, 'settings');
+  await page.getByRole('button', { name: 'Start empty' }).click();
+  await go(page, 'dash');
+  await expect(page.locator('main h1')).toHaveText('Home');
+  await expect(page.locator('#kegmap')).toHaveCount(0);
+});
+
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {
   await fresh(page, 'partners');
   await page.locator('tr', { hasText: 'Koramangala Social' }).getByRole('button', { name: 'Edit' }).click();

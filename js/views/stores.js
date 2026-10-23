@@ -17,11 +17,14 @@ const kegPins = () => db.customers.filter(c => c.lat !== '' && c.lng !== '').map
   return { lat: c.lat, lng: c.lng, n: ks.length, title: c.name, cls: !ks.length ? 'none' : late ? 'late' : '',
     html: `<b>${esc(c.name)}</b><br>${ks.length} keg${ks.length === 1 ? '' : 's'} out${late ? `, ${late} over 30 days` : ''}${ks.length ? `: ${ks.map(k => esc(k.code)).join(', ')}` : ''}${lost ? `<br>${lost} lost here` : ''}` };
 });
-const kegMap = () => {
+// Home shows the same map at a smaller size. It appears only once a customer has a location, so an empty brewery never loads map tiles.
+export const kegMap = (home = false) => {
+  if (home && !db.customers.some(c => c.lat !== '' && c.lng !== '')) return '';
   setTimeout(() => { const el = document.getElementById('kegmap'); if (el) drawMap(el, kegPins()); });
-  const missing = db.customers.filter(c => c.lat === '' || c.lng === '').length;
-  return panel('Where your kegs are', `<div id="kegmap" class="kmap" role="region" aria-label="Map of kegs at customers"></div>
-    <p class="note">${missing ? `${missing} customer${missing === 1 ? ' has' : 's have'} no map location yet. Add one in <a href="#partners">Customers</a>, Edit. ` : ''}Map data © OpenStreetMap contributors.</p>`);
+  const missing = db.customers.filter(c => c.lat === '' || c.lng === '').length, out = db.kegs.filter(k => k.status === 'At customer').length;
+  return panel(home ? `Kegs out (${out})` : 'Where your kegs are', `<div id="kegmap" class="kmap ${home ? 'small' : ''}" role="region" aria-label="Map of kegs at customers"></div>
+    <p class="note">${missing && !home ? `${missing} customer${missing === 1 ? ' has' : 's have'} no map location yet. Add one in <a href="#partners">Customers</a>, Edit. ` : ''}Map data © OpenStreetMap contributors.</p>`,
+    home ? '<a class="link" href="#kegs">All kegs</a>' : '');
 };
 const kegTurns = () => {
   const s = kegStats();

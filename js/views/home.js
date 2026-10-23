@@ -2,6 +2,7 @@
 import { db, next, commit, IN_TANK, isDemo, startEmpty } from '../store.js';
 import { esc, num, inr0, today, addDays, fmtDate, sum, uid, toast } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openForm } from '../ui.js';
+import { kegMap } from './stores.js';
 
 // Hidden for this visit only, so a brewer who keeps exploring is reminded next time.
 let demoHidden = false;
@@ -46,6 +47,7 @@ export const views = {
         }).join('')}</div>`, '<a class="link" href="#tanks">All tanks</a>')}
         ${panel('Alerts', list.length ? `<ul class="list">${list.slice(0, 8).map(a => `<li><a href="${a.href}"><i class="dot ${a.lvl}"></i>${esc(a.text)}</a></li>`).join('')}</ul>` : '<p class="empty">All clear.</p>')}
       </div>
+      ${kegMap(true)}
       <div class="cols">
         ${panel('Beer on hand', table(['Beer', 'Level', { t: 'Litres', n: 1 }, { t: 'Days left', n: 1 }],
           stock.map(s => `<tr><td>${esc(s.r.name)}</td><td>${bar(s.total, max)}</td><td class="n">${num(s.total, 0)}</td><td class="n">${Number.isFinite(s.daysLeft) ? Math.round(s.daysLeft) : 'n/a'}</td></tr>`)))}

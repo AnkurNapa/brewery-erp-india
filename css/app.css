@@ -79,6 +79,7 @@ main { margin-left: 260px; padding: 40px 40px 80px; max-width: 1320px; }
 .card-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 /* Keg map: pins carry the count of kegs out; red when one is over 30 days, grey when none. */
 .kmap { height: clamp(260px, 45vw, 420px); border-radius: var(--r-sm); background: var(--fill); z-index: 0; }
+.kmap.small { height: clamp(220px, 32vw, 320px); }
 .kpin b { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--blue); color: #fff; font-size: 13px; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
 .kpin.late b { background: var(--red); }
 .kpin.none b { background: #8e8e93; }
