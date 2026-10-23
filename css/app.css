@@ -77,12 +77,14 @@ main { margin-left: 260px; padding: 40px 40px 80px; max-width: 1320px; }
 .sub { display: block; }
 .grow { flex: 1; min-width: 0; }
 .card-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
-/* Keg map: pins carry the count of kegs out; red when one is over 30 days, grey when none. */
+/* Keg map: each pin is the keg icon with the count of kegs out. Red when one is over 30 days, grey when none. */
 .kmap { height: clamp(260px, 45vw, 420px); border-radius: var(--r-sm); background: var(--fill); z-index: 0; }
 .kmap.small { height: clamp(220px, 32vw, 320px); }
-.kpin b { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--blue); color: #fff; font-size: 13px; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
-.kpin.late b { background: var(--red); }
-.kpin.none b { background: #8e8e93; }
+.kpin { --pin: var(--blue); }
+.kpin.late { --pin: var(--red); }
+.kpin.none { --pin: #8e8e93; }
+.kpin svg { width: 30px; height: 42px; fill: var(--pin); stroke: #fff; stroke-width: 1.1; stroke-linejoin: round; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .45)); }
+.kpin b { position: absolute; top: -8px; right: -12px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #fff; color: var(--pin); font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); }
 .leaflet-container { font: inherit; }
 @media (prefers-color-scheme: dark) { .kmap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); } }
 .cam video { width: 100%; max-height: 50vh; border-radius: var(--r-sm); background: #000; margin-bottom: 8px; }

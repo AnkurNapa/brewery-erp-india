@@ -1,5 +1,7 @@
 // Keg map: Leaflet on OpenStreetMap tiles, the same setup as the Beverage-AI Radar.
 // Leaflet loads only when a map is on screen, so no other page fetches it.
+import { ICON } from './icons.js';
+
 const LIB = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
 const CSS = [LIB + 'leaflet.min.css', 'sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb'];
 const JS = [LIB + 'leaflet.min.js', 'sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO'];
@@ -19,7 +21,7 @@ export function drawMap(el, pins) {
     if (!el.isConnected) return;
     const map = L.map(el, { scrollWheelZoom: false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
-    const pts = pins.map(p => L.marker([p.lat, p.lng], { title: p.title, alt: p.title, icon: L.divIcon({ className: `kpin ${p.cls || ''}`, html: `<b>${p.n}</b>`, iconSize: [30, 30] }) })
+    const pts = pins.map(p => L.marker([p.lat, p.lng], { title: p.title, alt: p.title, icon: L.divIcon({ className: `kpin ${p.cls || ''}`, html: `<svg viewBox="5 2 14 20" aria-hidden="true">${ICON.kegs}</svg><b>${p.n}</b>`, iconSize: [30, 42], iconAnchor: [15, 41], popupAnchor: [0, -38] }) })
       .bindPopup(p.html).addTo(map).getLatLng());
     if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 12 }); else map.setView(...INDIA);
     // The map can be drawn while its panel is still being laid out; Leaflet needs its real size.
