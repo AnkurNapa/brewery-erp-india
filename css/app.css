@@ -9,7 +9,7 @@
   --beer: #f5b041; --steel: #aeaeb2; --side: rgba(246, 246, 248, .82); --bar: rgba(249, 249, 249, .86);
   --grad: linear-gradient(135deg, #007aff, #34c759);
   --r: 14px; --r-sm: 10px; --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px -12px rgba(0, 0, 0, .14);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "DM Sans", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
