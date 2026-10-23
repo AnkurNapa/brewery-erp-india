@@ -29,6 +29,10 @@ const ICON = {
   sales: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
 };
+// Detail screens get an iOS style back button to their parent list.
+const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'] };
+let depth = 0, prev = null, cur = null;
+const TITLES = Object.fromEntries(NAV.flatMap(([, items]) => items));
 const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
 
 function route() {
@@ -43,18 +47,22 @@ function draw() {
     + NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${t}${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
   $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${svg(k)}<span>${t}</span></a>`).join('')
     + `<button type="button" data-more ${!TABS.some(([k]) => k === active) ? 'aria-current="page"' : ''}>${svg('more')}<span>More</span></button>`;
-  $('main').innerHTML = VIEWS[view](arg);
+  if (view !== cur) { prev = cur; cur = view; }
+  const up = PARENT[view] && (depth > 0 && TITLES[prev] ? [prev, TITLES[prev]] : PARENT[view]);
+  $('main').innerHTML = (up ? `<button class="back" data-back="${up[0]}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>${up[1]}</button>` : '') + VIEWS[view](arg);
   document.title = `${$('main').querySelector('h1')?.textContent || 'Home'} · Brewhouse ERP`;
 }
 
 load();
 addEventListener('db', draw);
-addEventListener('hashchange', () => { document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
+addEventListener('hashchange', () => { depth++; document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
 addEventListener('afterprint', () => { $('print').innerHTML = ''; });
 
 document.addEventListener('click', e => {
   if (e.target.closest('dialog')) return;
   if (e.target.closest('[data-more]')) return document.body.classList.toggle('menu');
+  const back = e.target.closest('[data-back]');
+  if (back) return depth > 0 ? history.back() : (location.hash = back.dataset.back);
   if (e.target.matches('.scrim')) return document.body.classList.remove('menu');
   const s = e.target.closest('[data-seg]');
   if (s) { SEGS[s.dataset.seg](s.dataset.v); return draw(); }

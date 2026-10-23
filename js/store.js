@@ -42,7 +42,7 @@ const SCHEMA = {
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
   packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, kegIds: IDS },
   dispatches: { id: ID, no: STR, date: DATE, customerId: ID, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM }) },
-  tasks: { id: ID, title: STR, type: STR, date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
+  tasks: { id: ID, title: STR, type: ONE(['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other']), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
   wastage: { id: ID, date: DATE, kind: ONE(['Beer', 'Material']), ref: ID, qty: NUM, reason: STR },
 };

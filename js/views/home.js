@@ -41,7 +41,7 @@ export const views = {
     const lead = (first.getDay() + 6) % 7, t = today();
     const events = {};
     const add = (d, html) => { if (d?.startsWith(month)) (events[d] ||= []).push(html); };
-    for (const k of db.tasks) add(k.date, `<span class="ev ${k.status === 'Done' ? 'done' : ''} t-${k.type.toLowerCase()}">${esc(k.title)}</span>`);
+    for (const k of db.tasks) add(k.date, `<span class="ev ${k.status === 'Done' ? 'done' : ''} t-${TASK_TYPES.includes(k.type) ? k.type.toLowerCase() : 'other'}">${esc(k.title)}</span>`);
     for (const b of db.batches) if (b.status === 'Planned') add(b.date, `<a class="ev t-brewing" href="#blr/${b.id}">Brew ${esc(b.code)}</a>`);
     const cells = Array.from({ length: lead }, () => '<div class="day off"></div>').concat(Array.from({ length: days }, (_, i) => {
       const d = `${month}-${String(i + 1).padStart(2, '0')}`;
