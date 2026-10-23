@@ -10,7 +10,7 @@ const [out, mode, only] = process.argv.slice(2);
 const phone = mode === 'phone';
 // Chrome's screencast streams frames at device pixels, so these give a true 1920x1080 and 1170x2532.
 const VIEW = phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, size: { width: 1170, height: 2532 } }
-  : { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1.2, size: { width: 1920, height: 1080 } };
+  : { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 2.4, size: { width: 3840, height: 2160 } }; // 4K so zooms stay sharp at 1080p
 const FFMPEG = process.env.FFMPEG || `${process.env.HOME}/bin/ffmpeg`;
 const server = spawn('python3', ['-m', 'http.server', '4175'], { stdio: 'ignore' });
 await new Promise(r => setTimeout(r, 800));
@@ -37,13 +37,17 @@ const CURSOR = `addEventListener('DOMContentLoaded', () => {
 });`;
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
+// Every click, tap and type is logged with its time and position so the editor can zoom to it.
+let events = [], tStart = 0;
+const log = (kind, x, y) => events.push({ kind, t: +((Date.now() - tStart) / 1000).toFixed(3), x: +(x / VIEW.viewport.width).toFixed(4), y: +(y / VIEW.viewport.height).toFixed(4) });
 function helpers(p) {
   const point = async (target, { click = true } = {}) => {
     const loc = typeof target === 'string' ? p.locator(target).first() : target;
     await loc.scrollIntoViewIfNeeded();
     const b = await loc.boundingBox();
     const x = b.x + b.width / 2, y = b.y + b.height / 2;
-    if (phone) { if (click) { await p.touchscreen.tap(x, y); await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.up(); } return; }
+    if (phone) { if (click) { log('tap', x, y); await p.touchscreen.tap(x, y); await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.up(); } return; }
+    log(click ? 'click' : 'point', x, y);
     await p.mouse.move(x, y, { steps: 28 });
     await wait(180);
     if (click) { await p.mouse.down(); await wait(90); await p.mouse.up(); }
@@ -53,12 +57,13 @@ function helpers(p) {
     const loc = typeof target === 'string' ? p.locator(target).first() : target;
     await loc.scrollIntoViewIfNeeded();
     const b = await loc.boundingBox();
+    log('tap', b.x + b.width / 2, b.y + b.height / 2);
     await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
     await p.mouse.down(); await wait(80); await p.mouse.up();
   };
-  const type = async (sel, text) => { const el = p.locator(sel).first(); await tap(el); await el.fill(''); await el.pressSequentially(text, { delay: 140 }); };
-  const scroll = async (dy, steps = 30) => { for (let i = 0; i < steps; i++) { await p.mouse.wheel(0, dy / steps); await wait(28); } };
-  const swipe = async dy => { await p.evaluate(async d => { const s = document.scrollingElement; const end = s.scrollTop + d; for (let i = 0; i < 40; i++) { s.scrollTop += d / 40; await new Promise(r => setTimeout(r, 18)); } s.scrollTop = end; }, dy); };
+  const type = async (sel, text) => { const el = p.locator(sel).first(); await tap(el); const b = await el.boundingBox(); await el.fill(''); log('type', b.x + b.width / 2, b.y + b.height / 2); await el.pressSequentially(text, { delay: 140 }); };
+  const scroll = async (dy, steps = 30) => { events.push({ kind: 'scroll', t: +((Date.now() - tStart) / 1000).toFixed(3) }); for (let i = 0; i < steps; i++) { await p.mouse.wheel(0, dy / steps); await wait(28); } };
+  const swipe = async dy => { events.push({ kind: 'scroll', t: +((Date.now() - tStart) / 1000).toFixed(3) }); await p.evaluate(async d => { const s = document.scrollingElement; const end = s.scrollTop + d; for (let i = 0; i < 40; i++) { s.scrollTop += d / 40; await new Promise(r => setTimeout(r, 18)); } s.scrollTop = end; }, dy); };
   const go = async hash => { await p.evaluate(h => { location.hash = h; }, hash); await wait(350); };
   const more = async label => {
     await tap('[data-more]');
@@ -68,6 +73,7 @@ function helpers(p) {
     await wait(700);
     // hasText matches substrings case-insensitively ("CIP" would hit "Recipes"), so anchor it.
     const b = await p.locator('#sidenav a').filter({ hasText: new RegExp('^' + label) }).first().boundingBox();
+    log('tap', b.x + b.width / 2, b.y + b.height / 2);
     await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
     await p.mouse.down(); await wait(80); await p.mouse.up();
     await wait(400);
@@ -127,6 +133,8 @@ for (const [name, play] of Object.entries(scenes)) {
   });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: size.width, maxHeight: size.height, everyNthFrame: 1 });
   const t0 = Date.now();
+  events = []; tStart = t0;
+  await wait(900); // a settled first frame for the crossfade in, and room for the zoom to lead in
   await play(p, helpers(p));
   const target = (durations[name] || 6) * 1000 + 600;
   if (Date.now() - t0 < target) await wait(target - (Date.now() - t0));
@@ -136,8 +144,9 @@ for (const [name, play] of Object.entries(scenes)) {
   // Each frame holds until the next one, then everything is resampled to a steady 30 fps.
   const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? end) - f.t).toFixed(4)}`).join('\n') + `\nfile '${frames.at(-1).file}'\n`;
   writeFileSync(`${tmp}/list.txt`, list);
-  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', `${tmp}/list.txt`, '-vf', `fps=30,scale=${size.width}:${size.height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-crf', '16', '-preset', 'medium', `${out}/${name}.mp4`]);
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', `${tmp}/list.txt`, '-vf', `fps=30,scale=${size.width}:${size.height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', `${out}/${name}.mp4`]);
   rmSync(tmp, { recursive: true, force: true });
+  writeFileSync(`${out}/${name}.json`, JSON.stringify({ duration: +((Date.now() - t0) / 1000).toFixed(3), events }, null, 1));
   console.log('recorded', name, ((Date.now() - t0) / 1000).toFixed(1), 's,', frames.length, 'frames');
 }
 await browser.close();
