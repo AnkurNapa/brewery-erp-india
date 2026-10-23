@@ -16,6 +16,7 @@ const SHOTS = [
 async function shoot(dir, viewport, scale, mobile) {
   mkdirSync(dir, { recursive: true });
   const b = await chromium.launch(), p = await b.newPage({ viewport, deviceScaleFactor: scale, isMobile: mobile, hasTouch: mobile });
+  await p.addInitScript(() => localStorage.setItem('brewhouse-consent', 'denied'));
   await p.goto(base + '#dash');
   await p.evaluate(async () => { const s = await import('/js/store.js'), d = await import('/js/demo.js'); s.replace(d.demo()); s.commit(); });
   for (const [name, target, act] of SHOTS) {

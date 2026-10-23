@@ -2,8 +2,9 @@
 import { test, expect } from '@playwright/test';
 
 const dialogs = new WeakMap();
-async function fresh(page, hash = 'dash') {
+async function fresh(page, hash = 'dash', consentChoice = 'denied') {
   const seen = [];
+  if (consentChoice) await page.addInitScript(c => localStorage.setItem('brewhouse-consent', c), consentChoice);
   dialogs.set(page, seen);
   page.on('dialog', d => { seen.push(d.message()); d.accept(); });
   await page.goto('/#' + hash);
@@ -377,4 +378,35 @@ test('32 double brew: a fermenter that holds two brews gets a double brew', asyn
     return { volume: b.volume, task: s.db.tasks.at(-1).title.startsWith('Double brew') };
   });
   expect(r).toEqual({ volume: 1000, task: true });
+});
+
+test('33 analytics: nothing loads until Allow, Settings can turn it off', async ({ page }) => {
+  await page.route('**/googletagmanager.com/**', r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+  await fresh(page, 'dash', null);
+  await expect(page.locator('#consent')).toBeVisible();
+  expect(await page.locator('script[src*="googletagmanager"]').count()).toBe(0);
+  await page.locator('[data-consent="granted"]').click();
+  await expect(page.locator('#consent')).toBeHidden();
+  expect(await page.locator('script[src*="googletagmanager.com/gtag/js?id=G-1ZHW47YJDC"]').count()).toBe(1);
+  await go(page, 'tanks');
+  await page.waitForTimeout(100);
+  const sent = await page.evaluate(() => window.dataLayer.map(a => Array.from(a)).filter(a => a[0] === 'event').map(a => a[1]));
+  expect(sent).toContain('page_view');
+  const leaks = await page.evaluate(() => JSON.stringify(window.dataLayer.map(a => Array.from(a))));
+  expect(leaks).not.toMatch(/Indiranagar|B-00|Koramangala/);
+  await go(page, 'settings');
+  await page.getByRole('button', { name: 'Turn analytics off' }).click();
+  expect(await page.evaluate(() => localStorage.getItem('brewhouse-consent'))).toBe('denied');
+});
+
+test('34 legal pages: linked from the app and cover the key points', async ({ page }) => {
+  await fresh(page, 'dash');
+  await page.locator('.legal-links a', { hasText: 'Privacy policy' }).click();
+  await expect(page.locator('h1')).toHaveText('Privacy policy');
+  await expect(page.locator('main')).toContainText('Digital Personal Data Protection Act, 2023');
+  await expect(page.locator('main')).toContainText('only if you choose Allow');
+  await page.locator('a', { hasText: 'Terms of use' }).last().click();
+  await expect(page.locator('h1')).toHaveText('Terms of use');
+  await expect(page.locator('main')).toContainText('placeholders');
+  await expect(page.locator('main')).toContainText('laws of India');
 });

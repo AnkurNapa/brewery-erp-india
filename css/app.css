@@ -221,6 +221,25 @@ table.compare tr.sec td { font-size: 12px; font-weight: 700; text-transform: upp
 .template:hover { border-color: var(--blue); transform: translateY(-1px); }
 .template b { color: var(--ink); font-size: 15px; } .template small { color: var(--muted); font-size: 13px; }
 
+.legal-links { margin: 6px 2px 0; font-size: 12px; color: var(--muted); }
+#side .legal-links a { display: inline; padding: 0; min-height: 0; color: var(--muted); text-decoration: underline; font-weight: 400; }
+.consent { position: fixed; z-index: 40; left: 50%; bottom: 20px; transform: translateX(-50%); width: min(720px, calc(100% - 32px)); display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 18px; border-radius: 16px; background: var(--card); box-shadow: 0 12px 40px -12px rgba(0, 0, 0, .35); border: 1px solid var(--line); }
+.consent[hidden] { display: none; }
+.consent p { margin: 0; font-size: 14px; } .consent a { text-decoration: underline; }
+.consent-btns { display: flex; gap: 8px; flex: none; }
+@media (max-width: 820px) { .consent { bottom: calc(76px + env(safe-area-inset-bottom)); flex-direction: column; align-items: stretch; } .consent-btns > * { flex: 1; } }
+
+body.doc { display: block; }
+.doc-page { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; line-height: 1.65; }
+.doc-page h1 { font-size: 34px; margin: 12px 0 4px; }
+.doc-page h2 { font-size: 20px; margin: 32px 0 8px; }
+.doc-page p, .doc-page li { color: var(--text); }
+.doc-page ul { padding-left: 22px; }
+.doc-page a { text-decoration: underline; }
+.doc-meta { color: var(--muted); font-size: 14px; }
+.doc-summary { background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); padding: 4px 20px 12px; margin-top: 20px; }
+.doc-summary h2 { margin-top: 16px; }
+
 /* ---------- calendar ---------- */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .dow { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; padding: 4px 0; }

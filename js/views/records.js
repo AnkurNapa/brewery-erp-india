@@ -3,6 +3,7 @@ import { db, commit, replace, clean, isBackup } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo, daysBetween, downloadCsv } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar } from '../ui.js';
 import { demo } from '../demo.js';
+import { consent, setConsent } from '../analytics.js';
 import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp } from '../calc.js';
 
 const UTIL_TYPES = { Electricity: 'kWh', Water: 'kL', 'LPG / PNG': 'kg', CO2: 'kg', Diesel: 'L', Other: '' };
@@ -108,6 +109,9 @@ export const views = {
       + `<form class="panel" id="settingsForm"><div class="grid">${SETTINGS_FIELDS.map(f => field(f, db.settings[f.k])).join('')}</div>
         <p class="note">The sample rates are placeholders. Replace them with your state's notified excise duty and VAT on beer.</p>
         <div class="card-acts"><button class="primary">Save settings</button></div></form>`
+      + panel('Privacy and analytics', `<p class="note">Brewery data stays in this browser. Anonymous usage analytics are <b>${consent() === 'granted' ? 'on' : 'off'}</b>.
+        <a href="privacy.html">Privacy policy</a> · <a href="terms.html">Terms of use</a></p>
+        <div class="card-acts">${consent() === 'granted' ? btn('Turn analytics off', 'analyticsOff', '', 'ghost') : btn('Allow analytics', 'analyticsOn', '', 'ghost')}</div>`)
       + panel('Backup', `<p class="note">Download everything as one JSON file, or restore it on another computer. ${db.settings.lastBackup ? `Last backup ${fmtDate(db.settings.lastBackup)}, ${daysBetween(db.settings.lastBackup, today())} days ago.` : '<b class="bad">No backup taken yet.</b>'}</p>
         <div class="card-acts wrap">${btn('Export backup', 'exportData', '', 'ghost')}<label class="ghost file">Import backup<input type="file" accept=".json,application/json" id="importFile" hidden></label>
         ${btn('Load demo brewpub', 'resetDemo', '', 'ghost')}${btn('Start empty', 'clearAll', '', 'ghost danger')}</div>`);
@@ -157,6 +161,8 @@ export const actions = {
   },
   csvLosses() { downloadCsv('beer-losses', ['Date', 'Batch', 'Beer', 'Stage', 'Litres', 'Reason'], db.losses.map(l => { const b = db.batches.find(x => x.id === l.batchId); return [l.date, b?.code || '', rec(b?.recipeId)?.name || '', l.stage, l.litres, l.reason]; })); },
   csvAdjust() { downloadCsv('stock-adjustments', ['Date', 'Count', 'Item', 'Change', 'Value', 'Reason'], db.adjustments.map(a => [a.date, db.counts.find(c => c.id === a.countId)?.no || '', a.label, a.delta, a.value, a.reason])); },
+  analyticsOn() { setConsent('granted'); document.getElementById('consent').hidden = true; toast('Analytics on. Thank you.'); commit(); },
+  analyticsOff() { setConsent('denied'); document.getElementById('consent').hidden = true; toast('Analytics off. The Analytics cookies were removed.'); commit(); },
   exportData() {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }));

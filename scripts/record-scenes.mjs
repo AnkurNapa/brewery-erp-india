@@ -7,9 +7,11 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const [out, mode, only] = process.argv.slice(2);
-const phone = mode === 'phone';
+const reel = mode === 'reel'; // full-bleed 1080x1920, the Craft Beer School Reel geometry
+const phone = mode === 'phone' || reel;
 // Chrome's screencast streams frames at device pixels, so these give a true 1920x1080 and 1170x2532.
-const VIEW = phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, size: { width: 1170, height: 2532 } }
+const VIEW = reel ? { viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5, isMobile: true, hasTouch: true, size: { width: 1080, height: 1920 } }
+  : phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, size: { width: 1170, height: 2532 } }
   : { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 2.4, size: { width: 3840, height: 2160 } }; // 4K so zooms stay sharp at 1080p
 const FFMPEG = process.env.FFMPEG || `${process.env.HOME}/bin/ffmpeg`;
 const server = spawn('python3', ['-m', 'http.server', '4175'], { stdio: 'ignore' });
@@ -65,7 +67,10 @@ function helpers(p) {
   const scroll = async (dy, steps = 30) => { events.push({ kind: 'scroll', t: +((Date.now() - tStart) / 1000).toFixed(3) }); for (let i = 0; i < steps; i++) { await p.mouse.wheel(0, dy / steps); await wait(28); } };
   const swipe = async dy => { events.push({ kind: 'scroll', t: +((Date.now() - tStart) / 1000).toFixed(3) }); await p.evaluate(async d => { const s = document.scrollingElement; const end = s.scrollTop + d; for (let i = 0; i < 40; i++) { s.scrollTop += d / 40; await new Promise(r => setTimeout(r, 18)); } s.scrollTop = end; }, dy); };
   const go = async hash => { await p.evaluate(h => { location.hash = h; }, hash); await wait(350); };
+  // Reels open each screen directly, like the Craft Beer School Reels, instead of showing the drawer.
+  const DIRECT = { Recipes: 'recipes', CIP: 'cip', 'Beer losses': 'losses', 'Stock take': 'stocktake', 'Excise and tax': 'tax', Help: 'help' };
   const more = async label => {
+    if (reel) { await go(DIRECT[label]); await wait(300); return; }
     await tap('[data-more]');
     await wait(500);
     // Items low in the phone drawer need the drawer scrolled before they can be tapped.
@@ -118,6 +123,7 @@ for (const [name, play] of Object.entries(scenes)) {
   const { size, ...ctxOpts } = VIEW;
   const ctx = await browser.newContext(ctxOpts);
   await ctx.addInitScript(CURSOR);
+  await ctx.addInitScript(() => localStorage.setItem('brewhouse-consent', 'denied')); // keep the consent prompt out of recordings
   const p = await ctx.newPage();
   p.on('dialog', d => d.accept());
   await p.goto(BASE + '#dash');

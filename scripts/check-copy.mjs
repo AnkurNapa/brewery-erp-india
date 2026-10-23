@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOTS = ['index.html', 'README.md', 'js', 'css', 'docs'];
+const ROOTS = ['index.html', 'privacy.html', 'terms.html', 'README.md', 'js', 'css', 'docs'];
 const BAD = [[/—/, 'em dash'], [/–/, 'en dash'], [/[“”‘’]/, 'curly quote'], [/, and /, '", and" join']];
 const files = p => (statSync(p).isDirectory() ? readdirSync(p).flatMap(f => files(join(p, f))) : [p]);
 let fails = 0;

@@ -48,7 +48,9 @@ Alcoholic liquor for human consumption sits outside GST in India. Beer is taxed 
 
 ## Where your data lives
 
-Everything is stored in your browser (localStorage). Nothing is sent to a server. Use **Settings > Export backup** often. Import that file to move to another computer.
+Everything you enter is stored in your browser (localStorage). Brewery records are never sent to a server. Use **Settings > Export backup** often. Import that file to move to another computer.
+
+Anonymous usage analytics (Google Analytics 4) load only if a visitor chooses Allow on the consent prompt. They count screens and a fixed set of actions, never brewery records. See the [Privacy policy](privacy.html) and [Terms of use](terms.html).
 
 This also means each browser has its own copy. A QR scan on a phone shows the phone's data, not the office laptop's. Sharing one live dataset across devices and adding user logins with access levels both need a backend, which this version does not have.
 

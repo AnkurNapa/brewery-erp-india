@@ -2,6 +2,7 @@
 import { db, load, persist } from './store.js';
 import { esc, $ } from './util.js';
 import { alerts } from './calc.js';
+import * as analytics from './analytics.js';
 import * as home from './views/home.js';
 import * as brew from './views/brew.js';
 import * as stores from './views/stores.js';
@@ -59,12 +60,25 @@ function draw() {
   document.title = `${$('main').querySelector('h1')?.textContent || 'Home'} · Brewhouse ERP`;
 }
 
+const reportView = () => setTimeout(() => analytics.pageView(route().view, document.title.split(' · ')[0]));
 load();
+analytics.init();
+if (!analytics.consent()) $('consent').hidden = false;
 addEventListener('db', draw);
-addEventListener('hashchange', () => { depth++; $('q').value = ''; $('results').innerHTML = ''; document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
+addEventListener('hashchange', () => { depth++; reportView(); $('q').value = ''; $('results').innerHTML = ''; document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
 addEventListener('afterprint', () => { $('print').innerHTML = ''; });
 
 document.addEventListener('click', e => {
+  const choice = e.target.closest('[data-consent]');
+  if (choice) {
+    analytics.setConsent(choice.dataset.consent);
+    $('consent').hidden = true;
+    if (choice.dataset.consent === 'granted') reportView();
+    return draw();
+  }
+  const out = e.target.closest('a[href]');
+  if (out && /linkedin\.com/.test(out.href)) analytics.track('linkedin_click');
+  if (out && out.href.startsWith('mailto:')) analytics.track(/schedule/i.test(out.href) ? 'book_call_click' : 'email_click');
   if (e.target.closest('dialog')) return;
   if (e.target.closest('[data-more]')) return document.body.classList.toggle('menu');
   const back = e.target.closest('[data-back]');
@@ -73,7 +87,12 @@ document.addEventListener('click', e => {
   const s = e.target.closest('[data-seg]');
   if (s) { SEGS[s.dataset.seg](s.dataset.v); return draw(); }
   const a = e.target.closest('[data-act]');
-  if (a && ACTIONS[a.dataset.act]) { e.preventDefault(); ACTIONS[a.dataset.act](a.dataset.id); }
+  if (a && ACTIONS[a.dataset.act]) {
+    e.preventDefault();
+    const ev = analytics.ACT_EVENTS[a.dataset.act];
+    if (ev) analytics.track(ev, a.dataset.act === 'applyTemplate' ? { template: a.dataset.id } : a.dataset.act.startsWith('csv') ? { report: a.dataset.act.slice(3).toLowerCase() } : {});
+    ACTIONS[a.dataset.act](a.dataset.id);
+  }
 });
 $('main').addEventListener('change', e => {
   if (e.target.dataset.status) brew.setStatus(e.target.dataset.status, e.target.value);
@@ -112,3 +131,4 @@ $('main').addEventListener('submit', e => {
   records.saveSettings(e.target);
 });
 draw();
+reportView();
