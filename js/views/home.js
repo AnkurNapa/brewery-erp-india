@@ -3,6 +3,7 @@ import { db, next, commit, IN_TANK, isDemo, startEmpty } from '../store.js';
 import { esc, num, inr0, today, addDays, fmtDate, sum, uid, toast } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openForm } from '../ui.js';
 import { kegMap } from './stores.js';
+import { periodSeg, periodRange, periodText, inPeriod, setPeriod } from '../period.js';
 
 // Hidden for this visit only, so a brewer who keeps exploring is reminded next time.
 let demoHidden = false;
@@ -30,16 +31,16 @@ let month = today().slice(0, 7);
 
 export const views = {
   dash() {
-    const stock = beerStock(), m = today().slice(0, 7), list = alerts();
+    const stock = beerStock(), list = alerts(), range = periodRange(), when = periodText();
     const left = sum(stock, s => s.total);
-    const sales = sum(db.sales.filter(s => s.date.startsWith(m)), s => invoice(s).total);
-    const exc = exciseIn(m + '-01', m + '-31');
+    const sales = sum(db.sales.filter(s => inPeriod(s.date, range)), s => invoice(s).total);
+    const exc = exciseIn(...range);
     const busy = db.tanks.filter(t => db.batches.some(b => b.tankId === t.id && IN_TANK.concat('Ready').includes(b.status)));
     const max = Math.max(1, ...stock.map(s => s.total));
     const open = db.tasks.filter(t => t.status === 'Open').sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
     return head('Home', `${esc(db.settings.name)} · ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}`, btn('New batch', 'newBatch'))
-      + demoBar() + setupCard()
-      + `<div class="kpis">${kpi(`${num(left, 0)} L`, 'Beer ready to sell', 'hero')}${kpi(`${busy.length}/${db.tanks.length}`, 'Tanks in use')}${kpi(inr0(sales), 'Sales this month')}${kpi(inr0(exc), 'Excise this month')}${kpi(list.length, 'Alerts', list.length ? 'alert' : '')}</div>
+      + demoBar() + setupCard() + periodSeg()
+      + `<div class="kpis">${kpi(`${num(left, 0)} L`, 'Beer ready to sell', 'hero')}${kpi(`${busy.length}/${db.tanks.length}`, 'Tanks in use')}${kpi(inr0(sales), `Sales ${when}`)}${kpi(inr0(exc), `Excise ${when}`)}${kpi(list.length, 'Alerts', list.length ? 'alert' : '')}</div>
       <div class="cols">
         ${panel('Brewery floor', `<div class="floor">${db.tanks.map(t => {
           const b = db.batches.find(x => x.tankId === t.id && x.status !== 'Sold out' && x.status !== 'Planned');
@@ -116,3 +117,4 @@ export const actions = {
     commit();
   },
 };
+export const segs = { period: setPeriod };

@@ -14,6 +14,8 @@ It opens with a demo brewpub loaded. Tap **Start my brewery** in the bar on Home
 
 **Home.** Alerts for low stock, near expiry, pending QC, overdue tasks, service due, kegs left at customers and beers running low. A live picture of the brewery floor with every tank's fill level.
 
+**Period filter.** Home, Reports, Taproom sales, Dispatch, Kegs and Beer losses share one filter: Today, This week, This month, This quarter, This FY or All time. Weeks start on Monday. Quarters and the year follow the Indian financial year from 1 April. The period you pick holds as you move between those screens. Stock, tanks and alerts always show today.
+
 **Schedule.** Month calendar of brewing, filling, dispatch, cleaning and maintenance tasks. A brew planner works out when to brew each beer from its sales rate, stock in hand, beer already in tanks and its average grain to glass cycle.
 
 **Stores.** On hand, reserved for planned batches and available stock. Reorder levels, expiry dates and QC approval on receipt. Material wastage. MRP suggests orders and raises purchase orders per vendor. Receiving a PO adds the stock and holds it for QC.

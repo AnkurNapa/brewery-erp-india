@@ -231,7 +231,7 @@ test('17 maintenance: servicing clears the alert', async ({ page }) => {
 
 test('18 utilities: a bill raises cost per litre', async ({ page }) => {
   await fresh(page, 'records');
-  const util = () => run(page, async () => (await import('/js/calc.js')).cogs(30)[0].util);
+  const util = () => run(page, async () => (await import('/js/calc.js')).cogs()[0].util);
   const u0 = await util();
   await page.getByRole('button', { name: 'Record utility' }).click();
   await sheet(page, { cost: 50000 });
@@ -439,6 +439,8 @@ test('35 kegs: turns, history, lost, bulk pickup, own codes and recall trace', a
   const s = await page.evaluate(() => import('/js/calc.js').then(c => c.kegStats()));
   expect(s.avgCycle).toBeGreaterThan(0);
   expect([s.lost, s.lostValue]).toEqual([1, 9000]);
+  await expect(page.locator('section', { hasText: 'Keg turns' })).not.toContainText('Hoppers Wine Shop');
+  await page.locator('[data-seg="period"][data-v="all"]').click();
   await expect(page.locator('section', { hasText: 'Keg turns' })).toContainText('Hoppers Wine Shop');
 
   await go(page, 'scan/K-002');
@@ -481,6 +483,22 @@ test('38 home keg map: shown with located customers, hidden for an empty brewery
   await go(page, 'dash');
   await expect(page.locator('main h1')).toHaveText('Home');
   await expect(page.locator('#kegmap')).toHaveCount(0);
+});
+
+test('39 period filter: calendar periods on the April FY, shared across screens', async ({ page }) => {
+  await fresh(page, 'dash');
+  const r = await page.evaluate(() => import('/js/period.js').then(m => ['day', 'week', 'month', 'quarter', 'year'].map(p => m.periodRange(p, '2026-02-12')).concat([m.periodRange('quarter', '2026-10-23'), m.periodRange('year', '2026-10-23')])));
+  expect(r).toEqual([['2026-02-12', '2026-02-12'], ['2026-02-09', '2026-02-12'], ['2026-02-01', '2026-02-12'], ['2026-01-01', '2026-02-12'], ['2025-04-01', '2026-02-12'], ['2026-10-01', '2026-10-23'], ['2026-04-01', '2026-10-23']]);
+  await expect(page.locator('.kpi', { hasText: 'Sales this month' })).toBeVisible();
+  await page.locator('[data-seg="period"][data-v="day"]').click();
+  await expect(page.locator('.kpi', { hasText: 'Sales today' })).toBeVisible();
+  // The choice carries over to the next screen.
+  await go(page, 'sales');
+  await expect(page.locator('[data-seg="period"][data-v="day"]')).toHaveAttribute('aria-selected', 'true');
+  const todays = await db(page, d => d.sales.filter(s => s.date === new Date().toISOString().slice(0, 10)).length);
+  await expect(page.locator('.kpi', { hasText: 'Invoices today' }).locator('b')).toHaveText(String(todays));
+  await page.locator('[data-seg="period"][data-v="all"]').click();
+  await expect(page.locator('.kpi', { hasText: 'Invoices all time' }).locator('b')).toHaveText(String(await db(page, d => d.sales.length)));
 });
 
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {

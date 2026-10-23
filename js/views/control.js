@@ -2,12 +2,13 @@
 import { db, next, commit, persist, consume, addLot, CIP_CYCLES, LOSS_STAGES } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysAgo, daysBetween } from '../util.js';
 import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
+import { periodSeg, periodRange, periodText, inPeriod } from '../period.js';
 import { mat, rec, tank, recipeCalc, tankLeft, tankFit, lastCip, lossBalance, packLeft, beerReconcile } from '../calc.js';
 
 const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 const targetName = id => tank(id)?.name || db.equipment.find(e => e.id === id)?.name || 'Deleted';
 const occupied = id => db.batches.some(b => b.tankId === id && !['Sold out', 'Planned'].includes(b.status));
-let lossWindow = '30', countMode = 'count';
+let countMode = 'count';
 
 export const views = {
   cip() {
@@ -29,16 +30,16 @@ export const views = {
   },
 
   losses() {
-    const from = lossWindow === 'all' ? '' : daysAgo(+lossWindow), target = db.settings.lossTarget || 5, allow = db.settings.lossAllow || 0;
-    const recs = db.losses.filter(l => l.date >= from), legacy = db.wastage.filter(w => w.kind === 'Beer' && w.date >= from);
-    const bs = db.batches.filter(b => b.issued && (b.date >= from || db.losses.some(l => l.batchId === b.id && l.date >= from)));
+    const range = periodRange(), target = db.settings.lossTarget || 5, allow = db.settings.lossAllow || 0;
+    const recs = db.losses.filter(l => inPeriod(l.date, range)), legacy = db.wastage.filter(w => w.kind === 'Beer' && inPeriod(w.date, range));
+    const bs = db.batches.filter(b => b.issued && (inPeriod(b.date, range) || recs.some(l => l.batchId === b.id)));
     const total = sum(recs, l => l.litres) + sum(legacy, w => w.qty), brewed = sum(bs, b => b.volume) || 1;
     const byStage = LOSS_STAGES.map(st => [st, sum(recs.filter(l => l.stage === st), l => l.litres) + (st === 'Taproom' ? sum(legacy, w => w.qty) : 0)]).filter(([, l]) => l);
     const worst = byStage.slice().sort((a, b) => b[1] - a[1])[0];
     const max = Math.max(1, ...byStage.map(([, l]) => l));
     return head('Beer losses', `Every litre lost between the fermenter and the glass. Target ${target}% per batch.`, btn('Losses CSV', 'csvLosses', '', 'ghost'))
-      + seg('lossWindow', [['30', 'Last 30 days'], ['90', 'Last 90 days'], ['all', 'All time']], lossWindow)
-      + `<div class="kpis four">${kpi(num(total, 0) + ' L', 'Beer lost')}${kpi(num(total / brewed * 100) + '%', allow ? `Of litres brewed, allowance ${num(allow)}%` : 'Of litres brewed', total / brewed * 100 > (allow || target) ? 'alert' : '')}${kpi(worst ? esc(worst[0]) : 'n/a', 'Biggest stage')}${kpi(num(sum(recs.filter(l => l.stage === 'Unexplained'), l => l.litres)) + ' L', 'Unexplained, from stock takes')}</div>`
+      + periodSeg()
+      + `<div class="kpis four">${kpi(num(total, 0) + ' L', `Beer lost ${periodText()}`)}${kpi(num(total / brewed * 100) + '%', allow ? `Of litres brewed, allowance ${num(allow)}%` : 'Of litres brewed', total / brewed * 100 > (allow || target) ? 'alert' : '')}${kpi(worst ? esc(worst[0]) : 'n/a', 'Biggest stage')}${kpi(num(sum(recs.filter(l => l.stage === 'Unexplained'), l => l.litres)) + ' L', 'Unexplained, from stock takes')}</div>`
       + `<div class="cols">${panel('By stage', table(['Stage', '', { t: 'Litres', n: 1 }, { t: 'Share', n: 1 }], byStage.map(([st, l]) => `<tr><td>${esc(st)}</td><td><div class="bar"><i style="width:${l / max * 100}%"></i></div></td><td class="n">${num(l)}</td><td class="n">${num(l / (total || 1) * 100, 0)}%</td></tr>`)))}
         ${panel('By batch', table(['Batch', 'Beer', { t: 'Into FV', n: 1 }, { t: 'Lost', n: 1 }, { t: '%', n: 1 }], bs.map(b => {
           const lb = lossBalance(b);
@@ -175,4 +176,4 @@ export function onInput(e) {
   return true;
 }
 
-export const segs = { lossWindow: v => { lossWindow = v; }, countMode: v => { countMode = v; } };
+export const segs = { countMode: v => { countMode = v; } };

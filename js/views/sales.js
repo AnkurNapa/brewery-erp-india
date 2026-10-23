@@ -1,8 +1,9 @@
 // Menu, taproom invoices, dispatch to trade customers, customer and vendor masters.
 import { db, next, commit, moveKeg, undoKeg } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysBetween } from '../util.js';
-import { head, btn, link, pill, panel, table, openForm, seg } from '../ui.js';
+import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
 import { parseLoc } from '../kegmap.js';
+import { periodSeg, periodText, inPeriod } from '../period.js';
 import { rec, prod, cust, keg, pack, invoice, packLeft, beerStock, removalDuty, beerLitres } from '../calc.js';
 
 const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
@@ -10,13 +11,16 @@ let partnerTab = 'customers';
 
 export const views = {
   sales() {
-    const rows = [...db.sales].sort((a, b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no)).map(s => {
+    const list = db.sales.filter(s => inPeriod(s.date)), tot = list.map(invoice);
+    const rows = [...list].sort((a, b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no)).map(s => {
       const c = invoice(s);
       return `<tr><td class="code">${esc(s.no)}</td><td>${fmtDate(s.date)}</td><td>${esc(s.customer)} ${s.dispatchId ? pill('Trade', 'info') : ''}</td><td class="n">${inr(c.beer)}</td><td class="n">${inr(c.food)}</td>
         <td class="n">${inr(c.vat + c.cgst + c.sgst)}</td><td class="n"><b>${inr(c.total)}</b></td><td class="acts">${link('Print', 'printInv', s.id)}${link('Delete', 'delInv', s.id, 'del')}</td></tr>`;
     });
     return head('Taproom sales', 'Beer carries state VAT and is drawn from that beer\'s tank stock. Food carries GST split as CGST and SGST.', `${btn('Sales CSV', 'csvSales', '', 'ghost')} ${btn('New invoice', 'newInv')}`)
-      + panel('', table(['Invoice', 'Date', 'Customer', { t: 'Beer', n: 1 }, { t: 'Food', n: 1 }, { t: 'Tax', n: 1 }, { t: 'Total', n: 1 }, ''], rows));
+      + periodSeg()
+      + `<div class="kpis four">${kpi(list.length, `Invoices ${periodText()}`)}${kpi(inr0(sum(tot, c => c.beer)), 'Beer before tax')}${kpi(inr0(sum(tot, c => c.food)), 'Food before tax')}${kpi(inr0(sum(tot, c => c.total)), 'Total with tax')}</div>`
+      + panel('', rows.length ? table(['Invoice', 'Date', 'Customer', { t: 'Beer', n: 1 }, { t: 'Food', n: 1 }, { t: 'Tax', n: 1 }, { t: 'Total', n: 1 }, ''], rows) : `<p class="empty">No invoices ${periodText()}.</p>`);
   },
 
   menu() {
@@ -31,11 +35,13 @@ export const views = {
     for (const k of out) (byCust[k.customerId] ||= []).push(k);
     const collect = Object.entries(byCust).map(([cid, ks]) => `<div class="collect"><h4>${esc(cust(cid)?.name || 'Unknown customer')} <small>${ks.length} keg${ks.length > 1 ? 's' : ''}</small></h4>
       ${ks.sort((a, b) => a.since.localeCompare(b.since)).map(k => { const days = daysBetween(k.since, today()); return `<div class="collect-row"><span class="code">${esc(k.code)}</span><span class="${days > 30 ? 'bad' : ''}">${days} days</span>${link('Picked up', 'kegPickup', k.id)}</div>`; }).join('')}</div>`);
-    const rows = [...db.dispatches].sort((a, b) => b.date.localeCompare(a.date)).map(d => `<tr><td class="code">${esc(d.no)}</td><td>${fmtDate(d.date)}</td><td>${esc(cust(d.customerId)?.name || '')}${d.invoiceId ? `<small class="sub">${esc(db.sales.find(s => s.id === d.invoiceId)?.no || '')}</small>` : ''}</td>
+    const sent = db.dispatches.filter(d => inPeriod(d.date));
+    const rows = [...sent].sort((a, b) => b.date.localeCompare(a.date)).map(d => `<tr><td class="code">${esc(d.no)}</td><td>${fmtDate(d.date)}</td><td>${esc(cust(d.customerId)?.name || '')}${d.invoiceId ? `<small class="sub">${esc(db.sales.find(s => s.id === d.invoiceId)?.no || '')}</small>` : ''}</td>
       <td>${d.lines.map(l => `${esc(l.label)}${l.qty > 1 ? ' × ' + l.qty : ''}`).join('<br>')}</td><td class="n">${num(sum(d.lines, l => l.litres))} L</td><td class="acts">${link('Delete', 'delDispatch', d.id, 'del')}</td></tr>`);
     return head('Dispatch', 'Kegs and packaged beer sent to bars, shops and distributors. Kegs move to At customer until they are picked up.', btn('New dispatch', 'newDispatch'))
       + panel(`Kegs to collect (${out.length})`, collect.length ? `<div class="collect-grid">${collect.join('')}</div>` : '<p class="empty">No kegs out with customers.</p>')
-      + panel('Dispatches', table(['Dispatch', 'Date', 'Customer', 'Items', { t: 'Litres', n: 1 }, ''], rows));
+      + periodSeg()
+      + panel(`Dispatches ${periodText()} (${sent.length}, ${num(sum(sent, d => sum(d.lines, l => l.litres)), 0)} L)`, rows.length ? table(['Dispatch', 'Date', 'Customer', 'Items', { t: 'Litres', n: 1 }, ''], rows) : `<p class="empty">No dispatches ${periodText()}.</p>`);
   },
 
   partners() {

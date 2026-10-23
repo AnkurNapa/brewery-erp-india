@@ -4,6 +4,7 @@ import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo,
 import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar } from '../ui.js';
 import { demo } from '../demo.js';
 import { consent, setConsent } from '../analytics.js';
+import { periodSeg, periodRange, periodText, inPeriod } from '../period.js';
 import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp } from '../calc.js';
 
 const UTIL_TYPES = { Electricity: 'kWh', Water: 'kL', 'LPG / PNG': 'kg', CO2: 'kg', Diesel: 'L', Other: '' };
@@ -12,26 +13,26 @@ const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[c
 
 const REPORTS = {
   business() {
-    const from = daysAgo(30), sales = db.sales.filter(s => s.date >= from);
+    const range = periodRange(), sales = db.sales.filter(s => inPeriod(s.date, range));
     const rev = sum(sales, s => { const c = invoice(s); return c.beer + c.food; });
-    const rm = sum(db.batches.filter(b => b.issued && b.date >= from), batchCost), util = sum(db.utilities.filter(u => u.date >= from), u => u.cost);
-    const exc = sum(db.batches.filter(b => b.readyDate >= from), duty), c = cogs(30);
-    return `<div class="kpis four">${kpi(inr0(rev), 'Revenue, last 30 days')}${kpi(inr0(rm), 'Ingredients issued')}${kpi(inr0(util), 'Utilities')}${kpi(inr0(exc), 'Excise booked')}</div>`
+    const rm = sum(db.batches.filter(b => b.issued && inPeriod(b.date, range)), batchCost), util = sum(db.utilities.filter(u => inPeriod(u.date, range)), u => u.cost);
+    const exc = sum(db.batches.filter(b => inPeriod(b.readyDate, range)), duty), c = cogs(...range);
+    return `<div class="kpis four">${kpi(inr0(rev), `Revenue, ${periodText()}`)}${kpi(inr0(rm), 'Ingredients issued')}${kpi(inr0(util), 'Utilities')}${kpi(inr0(exc), 'Excise booked')}</div>`
       + panel('COGS per sellable litre', table(['Beer', { t: 'Ingredients', n: 1 }, { t: 'Utilities', n: 1 }, { t: 'Excise', n: 1 }, { t: 'Total cost', n: 1 }, { t: 'Avg price', n: 1 }, { t: 'Margin', n: 1 }],
         c.map(x => `<tr><td>${esc(x.r.name)}</td><td class="n">${inr(x.rm)}</td><td class="n">${inr(x.util)}</td><td class="n">${inr(x.exc)}</td><td class="n"><b>${inr(x.total)}</b></td><td class="n">${x.priceL ? inr(x.priceL) : ''}</td>
           <td class="n">${x.priceL ? `<span class="${x.margin < 50 ? 'bad' : 'good'}">${num(x.margin, 0)}%</span>` : ''}</td></tr>`))
-        + '<p class="note">Utilities are spread over litres brewed in the last 30 days. Price is the average taproom price per litre before tax.</p>');
+        + `<p class="note">Utilities are spread over litres brewed ${periodText()}. Price is the average taproom price per litre before tax.</p>`);
   },
   production() {
     const months = {};
-    for (const b of db.batches.filter(b => b.issued)) { const m = (months[b.date.slice(0, 7)] ||= { n: 0, l: 0, packed: 0, cost: 0 }); m.n++; m.l += b.volume; m.packed += batchPackedL(b); m.cost += batchCost(b); }
+    for (const b of db.batches.filter(b => b.issued && inPeriod(b.date))) { const m = (months[b.date.slice(0, 7)] ||= { n: 0, l: 0, packed: 0, cost: 0 }); m.n++; m.l += b.volume; m.packed += batchPackedL(b); m.cost += batchCost(b); }
     return panel('Production summary', table(['Month', { t: 'Batches', n: 1 }, { t: 'Litres brewed', n: 1 }, { t: 'Litres packaged', n: 1 }, { t: 'Ingredient cost', n: 1 }],
       Object.keys(months).sort().reverse().map(k => { const m = months[k]; return `<tr><td>${k}</td><td class="n">${m.n}</td><td class="n">${num(m.l, 0)}</td><td class="n">${num(m.packed, 0)}</td><td class="n">${inr0(m.cost)}</td></tr>`; })));
   },
   consumption() {
     const used = {};
-    for (const b of db.batches) for (const i of b.issues) { const u = (used[i.id] ||= { qty: 0, cost: 0, waste: 0 }); u.qty += i.qty; u.cost += i.cost; }
-    for (const w of db.wastage.filter(w => w.kind === 'Material')) (used[w.ref] ||= { qty: 0, cost: 0, waste: 0 }).waste += w.qty;
+    for (const b of db.batches.filter(b => inPeriod(b.date))) for (const i of b.issues) { const u = (used[i.id] ||= { qty: 0, cost: 0, waste: 0 }); u.qty += i.qty; u.cost += i.cost; }
+    for (const w of db.wastage.filter(w => w.kind === 'Material' && inPeriod(w.date))) (used[w.ref] ||= { qty: 0, cost: 0, waste: 0 }).waste += w.qty;
     const beer = beerStock();
     return panel('Raw material consumption', table(['Material', { t: 'Issued to batches', n: 1 }, { t: 'Wasted', n: 1 }, { t: 'Cost', n: 1 }],
       Object.entries(used).map(([id, u]) => `<tr><td>${esc(mat(id)?.name || 'Deleted')}</td><td class="n">${num(u.qty, 2)} ${esc(mat(id)?.unit || '')}</td><td class="n">${u.waste ? num(u.waste, 2) : ''}</td><td class="n">${inr0(u.cost)}</td></tr>`)))
@@ -40,19 +41,19 @@ const REPORTS = {
   },
   dispatch() {
     const by = {};
-    for (const d of db.dispatches) { const c = (by[d.customerId] ||= { n: 0, kegs: 0, units: 0, l: 0 }); c.n++; for (const l of d.lines) { if (l.ref.startsWith('k:')) c.kegs++; else c.units += l.qty; c.l += l.litres; } }
+    for (const d of db.dispatches.filter(d => inPeriod(d.date))) { const c = (by[d.customerId] ||= { n: 0, kegs: 0, units: 0, l: 0 }); c.n++; for (const l of d.lines) { if (l.ref.startsWith('k:')) c.kegs++; else c.units += l.qty; c.l += l.litres; } }
     return panel('Dispatch summary', table(['Customer', { t: 'Dispatches', n: 1 }, { t: 'Kegs', n: 1 }, { t: 'Packs', n: 1 }, { t: 'Litres', n: 1 }, { t: 'Kegs out now', n: 1 }],
       Object.entries(by).map(([id, c]) => `<tr><td>${esc(cust(id)?.name || '')}</td><td class="n">${c.n}</td><td class="n">${c.kegs}</td><td class="n">${c.units}</td><td class="n">${num(c.l)}</td><td class="n">${db.kegs.filter(k => k.customerId === id && k.status === 'At customer').length}</td></tr>`)));
   },
   stock() {
     const beer = beerStock(), max = Math.max(1, ...beer.map(s => s.total));
-    return panel('Beer', table(['Beer', { t: 'In tank', n: 1 }, { t: 'Packaged', n: 1 }, { t: 'Total', n: 1 }, ''], beer.map(s => `<tr><td>${esc(s.r.name)}</td><td class="n">${num(Math.max(0, s.draught), 0)} L</td><td class="n">${num(s.packagedL, 0)} L</td><td class="n"><b>${num(s.total, 0)} L</b></td><td>${bar(s.total, max)}</td></tr>`)))
+    return '<p class="note">Stock is as of today, so the period filter does not change it.</p>' + panel('Beer', table(['Beer', { t: 'In tank', n: 1 }, { t: 'Packaged', n: 1 }, { t: 'Total', n: 1 }, ''], beer.map(s => `<tr><td>${esc(s.r.name)}</td><td class="n">${num(Math.max(0, s.draught), 0)} L</td><td class="n">${num(s.packagedL, 0)} L</td><td class="n"><b>${num(s.total, 0)} L</b></td><td>${bar(s.total, max)}</td></tr>`)))
       + panel('Packaged goods', table(['Batch', 'Format', { t: 'Units left', n: 1 }], db.packs.filter(p => packLeft(p) > 0).map(p => { const b = db.batches.find(x => x.id === p.batchId); return `<tr><td>${esc(b?.code)} ${esc(rec(b?.recipeId)?.name || '')}</td><td>${esc(p.format)}</td><td class="n">${packLeft(p)}</td></tr>`; })))
       + panel('Raw materials', table(['Material', { t: 'On hand', n: 1 }, { t: 'Available', n: 1 }, { t: 'Value', n: 1 }], mrp().map(x => `<tr><td>${esc(x.m.name)}</td><td class="n">${num(x.m.qty, 2)} ${esc(x.m.unit)}</td><td class="n ${x.avail <= x.m.reorder ? 'bad' : ''}">${num(x.avail, 2)}</td><td class="n">${inr0(x.m.qty * x.m.cost)}</td></tr>`),
         `<tfoot><tr><td>Total</td><td></td><td></td><td class="n">${inr0(sum(db.materials, m => m.qty * m.cost))}</td></tr></tfoot>`));
   },
   process() {
-    const bs = db.batches.filter(b => b.issued);
+    const bs = db.batches.filter(b => b.issued && inPeriod(b.date));
     return panel('Recipe versus batch', table(['Batch', 'Beer', { t: 'Target OG', n: 1 }, { t: 'Actual OG', n: 1 }, { t: 'Target L', n: 1 }, { t: 'Actual L', n: 1 }, { t: 'Brewhouse eff.', n: 1 }, { t: 'Volume eff.', n: 1 }, 'Deviations'],
       bs.map(b => {
         const r = rec(b.recipeId), t = r ? recipeCalc(r) : null, packed = batchPackedL(b);
@@ -61,7 +62,7 @@ const REPORTS = {
       })) + `<p class="note">Target brewhouse efficiency is ${db.settings.efficiency || 72}%. Volume efficiency is litres packaged against litres into the fermenter.</p>`);
   },
   quality() {
-    const bs = db.batches.filter(b => b.log.length);
+    const bs = db.batches.filter(b => b.log.length && inPeriod(b.date));
     return panel('Batch quality and fermentation', table(['Batch', 'Beer', { t: 'Days logged', n: 1 }, { t: 'OG', n: 1 }, { t: 'Latest gravity', n: 1 }, { t: 'Attenuation', n: 1 }, { t: 'ABV', n: 1 }, { t: 'Temp range', n: 1 }, { t: 'pH', n: 1 }],
       bs.map(b => {
         const temps = b.log.map(x => x.temp).filter(x => x !== ''), ph = b.log.map(x => x.ph).filter(x => x !== '');
@@ -83,7 +84,7 @@ export const views = {
   },
 
   reports() {
-    return head('Reports', 'Business performance and process control, from the same data the floor records.') + seg('reportTab', REPORT_TABS, reportTab) + REPORTS[reportTab]();
+    return head('Reports', 'Business performance and process control, from the same data the floor records.') + periodSeg() + seg('reportTab', REPORT_TABS, reportTab) + REPORTS[reportTab]();
   },
 
   tax() {

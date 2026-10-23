@@ -4,6 +4,7 @@ import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, addDays, daysBetw
 import { head, btn, link, pill, statusCls, panel, table, kpi, metric, openForm, qr, seg } from '../ui.js';
 import { mat, rec, vendor, cust, keg, tank, reserved, mrp, approvedQty, pendingLots, expiryOf, kegStats } from '../calc.js';
 import { drawMap } from '../kegmap.js';
+import { periodSeg, periodRange, periodText } from '../period.js';
 
 const TYPES = ['Malt', 'Hops', 'Yeast', 'Adjunct', 'Chemical', 'Packaging', 'Gas', 'Other'];
 const vendorOpts = () => [{ v: '', t: 'None' }, ...db.vendors.map(v => ({ v: v.id, t: v.name }))];
@@ -27,9 +28,9 @@ export const kegMap = (home = false) => {
     home ? '<a class="link" href="#kegs">All kegs</a>' : '');
 };
 const kegTurns = () => {
-  const s = kegStats();
-  return panel('Keg turns', `<div class="metrics">${metric(s.avgCycle ? s.avgCycle + ' days' : 'n/a', 'fill to return')}${metric(s.turns || 'n/a', 'turns a year')}${metric(s.lost, 'kegs lost')}${metric(inr0(s.lostValue), 'value lost')}</div>
-    ${s.accounts.length ? table(['Customer', { t: 'Visits', n: 1 }, { t: 'Average days out', n: 1 }, { t: 'Out now', n: 1 }, { t: 'Lost', n: 1 }], s.accounts.map(a => `<tr><td>${esc(a.c.name)}</td><td class="n">${a.visits}</td><td class="n ${a.avgDays > 30 ? 'bad' : ''}">${a.avgDays}</td><td class="n">${a.out || ''}</td><td class="n ${a.lost ? 'bad' : ''}">${a.lost || ''}</td></tr>`)) : '<p class="empty">Turns show once kegs have been out and back.</p>'}
+  const s = kegStats(...periodRange());
+  return periodSeg() + panel(`Keg turns, ${periodText()}`, `<div class="metrics">${metric(s.avgCycle ? s.avgCycle + ' days' : 'n/a', 'fill to return')}${metric(s.turns || 'n/a', 'turns a year')}${metric(s.lost, 'kegs lost')}${metric(inr0(s.lostValue), 'value lost')}</div>
+    ${s.accounts.length ? table(['Customer', { t: 'Visits', n: 1 }, { t: 'Average days out', n: 1 }, { t: 'Out now', n: 1 }, { t: 'Lost', n: 1 }], s.accounts.map(a => `<tr><td>${esc(a.c.name)}</td><td class="n">${a.visits}</td><td class="n ${a.avgDays > 30 ? 'bad' : ''}">${a.avgDays}</td><td class="n">${a.out || ''}</td><td class="n ${a.lost ? 'bad' : ''}">${a.lost || ''}</td></tr>`)) : `<p class="empty">No keg went out ${periodText()}. Try a longer period.</p>`}
     ${db.settings.kegValue ? '' : '<p class="note">Set a keg value in Settings to price lost kegs.</p>'}`);
 };
 

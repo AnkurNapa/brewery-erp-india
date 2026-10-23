@@ -236,10 +236,10 @@ export function invoice(s) {
 
 // Cost per litre for each beer: ingredients from recipe, utilities spread over
 // litres brewed in the same window, excise at the current rate.
-export function cogs(days = 30) {
-  const from = daysAgo(days);
-  const brewedL = sum(db.batches.filter(b => b.issued && b.date >= from), b => b.volume) || 1;
-  const utilL = sum(db.utilities.filter(u => u.date >= from), u => u.cost) / brewedL;
+export function cogs(from = daysAgo(30), to = '9999-12-31') {
+  const within = d => d >= from && d <= to;
+  const brewedL = sum(db.batches.filter(b => b.issued && within(b.date)), b => b.volume) || 1;
+  const utilL = sum(db.utilities.filter(u => within(u.date)), u => u.cost) / brewedL;
   return db.recipes.map(r => {
     const c = recipeCalc(r);
     const beerLines = db.sales.flatMap(s => s.lines).filter(l => prod(l.pid)?.recipeId === r.id);
@@ -287,25 +287,25 @@ export function alerts() {
 
 // Keg turns from each keg's history. A cycle runs from filling to the next return to the brewery.
 // A fill undone before it left (two fills in a row) is not a cycle. Days out counts each visit to a customer,
-// up to today for kegs still there.
-export function kegStats() {
-  const t = today(), cycles = [], visits = {};
+// up to today for kegs still there. A period counts cycles filled, visits started and kegs lost inside it.
+export function kegStats(from = '', to = '9999-12-31') {
+  const t = today(), cycles = [], visits = {}, within = d => d >= from && d <= to;
   for (const k of db.kegs) {
     const h = k.history;
     h.forEach((e, i) => {
       const rest = h.slice(i + 1);
-      if (e.status === 'Filled') {
+      if (e.status === 'Filled' && within(e.date)) {
         const back = rest.findIndex(x => x.status === 'Cleaning'), refill = rest.findIndex(x => x.status === 'Filled');
         if (back >= 0 && (refill < 0 || back < refill)) cycles.push(daysBetween(e.date, rest[back].date));
       }
-      if (e.status === 'At customer' && e.customerId) {
+      if (e.status === 'At customer' && e.customerId && within(e.date)) {
         const end = rest.find(x => x.status !== 'At customer')?.date || (k.status === 'At customer' ? t : '');
         if (end) (visits[e.customerId] ||= []).push(daysBetween(e.date, end));
       }
     });
   }
   const avgCycle = cycles.length ? Math.round(sum(cycles, d => d) / cycles.length) : 0;
-  const lost = db.kegs.filter(k => k.status === 'Lost');
+  const lost = db.kegs.filter(k => k.status === 'Lost' && within(k.history.findLast(h => h.status === 'Lost')?.date || k.since));
   const accounts = Object.entries(visits).map(([cid, d]) => ({ c: cust(cid), visits: d.length, avgDays: Math.round(sum(d, x => x) / d.length),
     out: db.kegs.filter(k => k.status === 'At customer' && k.customerId === cid).length, lost: lost.filter(k => k.customerId === cid).length }))
     .filter(a => a.c).sort((a, b) => b.avgDays - a.avgDays);
