@@ -109,6 +109,14 @@ export function load() {
   try { d = JSON.parse(localStorage.getItem(KEY)); } catch { /* blocked or corrupt: fall back to demo */ }
   replace(isBackup(d) ? d : demo());
 }
+// The demo is recognised by its fictional GSTIN, so browsers saved before this check still get the demo bar.
+export const isDemo = () => db.settings.gstin === demo().settings.gstin;
+// An empty brewery keeps only process defaults. Tax rates, prices and the kit are blanked so no demo figure survives.
+export function startEmpty() {
+  const s = demo().settings;
+  replace({ settings: { ...s, name: 'My Brewery', gstin: '', address: '', state: '', prefix: '', exciseRate: 0, vat: 0, tradeRateL: 0, lastBackup: '', brewhouse: { ...s.brewhouse, lengthHL: 0, mashTun: 0, lauterTun: 0, kettle: 0, hlt: 0, clt: 0 } } });
+  commit();
+}
 export function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { toast('This browser blocked saving. Export a backup from Settings.'); }
 }

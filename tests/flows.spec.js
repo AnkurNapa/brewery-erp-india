@@ -33,6 +33,21 @@ test('1 first run: an empty brewery gets a setup card', async ({ page }) => {
   await expect(page.locator('.setup li.done')).toHaveCount(1);
 });
 
+test('1b demo bar: hides for the visit, start clears demo figures and opens setup', async ({ page }) => {
+  await fresh(page);
+  const bar = page.locator('.demo-bar');
+  await expect(bar).toBeVisible();
+  await page.getByRole('button', { name: 'Keep exploring' }).click();
+  await expect(bar).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button', { name: 'Start my brewery' }).click();
+  await expect(page).toHaveURL(/#setup$/);
+  const s = await db(page, d => ({ batches: d.batches.length, gstin: d.settings.gstin, excise: d.settings.exciseRate, vat: d.settings.vat, len: d.settings.brewhouse.lengthHL }));
+  expect(s).toEqual({ batches: 0, gstin: '', excise: 0, vat: 0, len: 0 });
+  await go(page, 'dash');
+  await expect(bar).toHaveCount(0);
+});
+
 test('2 masters: add a customer', async ({ page }) => {
   await fresh(page, 'partners');
   await page.getByRole('button', { name: 'Add customer' }).click();

@@ -6,7 +6,7 @@ A free, browser-based ERP for Indian microbreweries and brewpubs. Grain to glass
 
 **Live app:** https://ankurnapa.github.io/brewery-erp-india/
 
-It opens with a demo brewpub loaded. Use **Settings > Start empty** when you are ready to enter your own data.
+It opens with a demo brewpub loaded. Tap **Start my brewery** in the bar on Home (or **Settings > Start empty**) when you are ready to enter your own data. It clears the demo, blanks its tax rates and kit, then opens Brewery setup.
 
 ## Modules
 

@@ -1,7 +1,12 @@
 // Home dashboard, schedule (calendar, tasks, brew planner).
-import { db, next, commit, IN_TANK } from '../store.js';
+import { db, next, commit, IN_TANK, isDemo, startEmpty } from '../store.js';
 import { esc, num, inr0, today, addDays, fmtDate, sum, uid, toast } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openForm } from '../ui.js';
+
+// Hidden for this visit only, so a brewer who keeps exploring is reminded next time.
+let demoHidden = false;
+const demoBar = () => (!isDemo() || demoHidden ? '' : `<div class="demo-bar" role="status"><p><b>You're looking at a demo brewpub.</b> Its batches, stock and tax rates are made up.</p>
+  <div class="card-acts">${btn('Start my brewery', 'startOwn')}${btn('Keep exploring', 'hideDemo', '', 'ghost')}</div></div>`);
 
 const setupCard = () => {
   const s = db.settings, steps = [
@@ -32,7 +37,7 @@ export const views = {
     const max = Math.max(1, ...stock.map(s => s.total));
     const open = db.tasks.filter(t => t.status === 'Open').sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
     return head('Home', `${esc(db.settings.name)} · ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}`, btn('New batch', 'newBatch'))
-      + setupCard()
+      + demoBar() + setupCard()
       + `<div class="kpis">${kpi(`${num(left, 0)} L`, 'Beer ready to sell', 'hero')}${kpi(`${busy.length}/${db.tanks.length}`, 'Tanks in use')}${kpi(inr0(sales), 'Sales this month')}${kpi(inr0(exc), 'Excise this month')}${kpi(list.length, 'Alerts', list.length ? 'alert' : '')}</div>
       <div class="cols">
         ${panel('Brewery floor', `<div class="floor">${db.tanks.map(t => {
@@ -75,6 +80,13 @@ export const views = {
 };
 
 export const actions = {
+  startOwn() {
+    if (!confirm('Clear the demo and start your own brewery? This removes every demo batch, recipe, stock line and sale.')) return;
+    startEmpty();
+    location.hash = 'setup';
+    toast('Demo cleared. Set up your brewhouse, then add your tax rates in Settings');
+  },
+  hideDemo() { demoHidden = true; dispatchEvent(new Event('db')); },
   monthPrev() { const d = new Date(month + '-15'); d.setMonth(d.getMonth() - 1); month = d.toISOString().slice(0, 7); dispatchEvent(new Event('db')); },
   monthNext() { const d = new Date(month + '-15'); d.setMonth(d.getMonth() + 1); month = d.toISOString().slice(0, 7); dispatchEvent(new Event('db')); },
   monthNow() { month = today().slice(0, 7); dispatchEvent(new Event('db')); },

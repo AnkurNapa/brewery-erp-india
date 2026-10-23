@@ -1,5 +1,5 @@
 // Utilities and wastage, reports, excise and tax, settings and backup.
-import { db, commit, replace, clean, isBackup } from '../store.js';
+import { db, commit, replace, clean, isBackup, startEmpty } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo, daysBetween, downloadCsv } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar } from '../ui.js';
 import { demo } from '../demo.js';
@@ -175,8 +175,7 @@ export const actions = {
   resetDemo() { if (confirm('Replace all data with the demo brewpub?')) { replace(demo()); commit(); } },
   clearAll() {
     if (!confirm('Delete everything and start with an empty brewery? Export a backup first if you need one.')) return;
-    replace({ settings: { ...demo().settings, name: 'My Brewery', gstin: '', address: '' } });
-    commit();
+    startEmpty();
   },
 };
 
