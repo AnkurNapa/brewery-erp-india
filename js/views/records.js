@@ -191,9 +191,10 @@ export function importBackup(file) {
     const d = JSON.parse(t);
     if (!isBackup(d)) throw new Error('not a backup');
     // Numbers already handed out on this device are never issued again, even when an older backup comes back.
-    const issued = { ...db.seq };
+    const issued = { ...db.seq }, year = db.settings.docYear;
     replace(clean(d));
     for (const k in db.seq) db.seq[k] = Math.max(db.seq[k], issued[k] || 1);
+    if (year > db.settings.docYear) db.settings.docYear = year;
     logAct('Restored backup', file.name);
     commit();
     toast('Backup restored');

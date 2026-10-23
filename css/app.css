@@ -117,6 +117,8 @@ td.n, th.n { text-align: right; white-space: nowrap; }
 tfoot td { font-weight: 600; color: var(--ink); border-top: 1px solid var(--line); border-bottom: 0; }
 tr.muted td { color: var(--muted); }
 td.acts { white-space: nowrap; text-align: right; }
+/* Up to four actions on a document row: let them wrap rather than push the table wide. */
+td.acts:has(> :nth-child(3)) { white-space: normal; min-width: 150px; }
 .code { font-weight: 600; color: var(--ink); white-space: nowrap; }
 a.code { color: var(--blue); }
 .bad { color: var(--red); font-weight: 600; } .good { color: var(--green); font-weight: 600; }

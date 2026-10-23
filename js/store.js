@@ -1,7 +1,7 @@
 // All data lives in one object in localStorage. Every load and import goes
 // through clean(), which rebuilds each record from a schema so a tampered
 // backup cannot smuggle markup into ids, dates or numbers.
-import { toast, today } from './util.js';
+import { toast, today, fyOf } from './util.js';
 import { demo } from './demo.js';
 
 const KEY = 'brewhouse-erp-v2';
@@ -11,6 +11,7 @@ export const KEG_STATES = ['Empty', 'Filled', 'At customer', 'Cleaning', 'Lost']
 export const HYGIENE = ['Cleaned', 'Sanitised', 'Dirty'];
 export const CIP_CYCLES = ['Full CIP', 'Caustic', 'Acid', 'Sanitiser', 'Rinse'];
 export const LOSS_STAGES = ['Fermentation', 'Transfer', 'Packaging', 'Taproom', 'Dispatch', 'QC samples', 'Dump', 'Unexplained'];
+export const PAY_MODES = ['Cash', 'UPI', 'Card', 'Bank transfer', 'Cheque'];
 export const TASK_TYPES = ['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other'];
 
 const ID = v => String(v ?? '').replace(/[^\w-]/g, '').slice(0, 40);
@@ -37,7 +38,7 @@ const SCHEMA = {
     lots: LIST({ id: ID, date: DATE, qty: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), cost: NUM, ref: STR }),
   },
   recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, mash: MASH, note: STR, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
-  products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM },
+  products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM, hsn: STR },
   tanks: { id: ID, name: STR, type: STR, capacity: NUM, hygiene: ONE(HYGIENE), cleanedOn: DATE },
   batches: {
     id: ID, code: STR, recipeId: ID, recipeVersion: NUM, date: DATE, status: ONE(STATUSES), volume: NUM, og: NUM, fg: NUM, tankId: ID, notes: STR,
@@ -46,10 +47,11 @@ const SCHEMA = {
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
     brew: obj({ mashTemp: OPT, steps: v => (Array.isArray(v) ? v.map(OPT) : []), preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
-  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID }), type: ONE(['Invoice', 'Credit note']), ref: STR, reason: STR, cancelledBy: ID },
+  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID, hsn: STR }), type: ONE(['Invoice', 'Credit note']), ref: STR, reason: STR, cancelledBy: ID,
+    mode: STR, credit: BOOL, dueDate: DATE, payments: LIST({ date: DATE, amount: NUM, mode: STR, ref: STR }) },
   kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE, history: LIST({ date: DATE, status: ONE(KEG_STATES), batchId: ID, customerId: ID }) },
   equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM },
-  customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR, lat: GEO(90), lng: GEO(180) },
+  customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR, lat: GEO(90), lng: GEO(180), terms: NUM },
   vendors: { id: ID, name: STR, gstin: STR, phone: STR, supplies: STR },
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
   packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, adjusted: NUM, kegIds: IDS },
@@ -65,7 +67,7 @@ const SCHEMA = {
 };
 export const BREWHOUSE_TYPES = ['2 vessel', '3 vessel', '4 vessel'];
 const BREWHOUSE = obj({ type: ONE(BREWHOUSE_TYPES), lengthHL: NUM, mashTun: NUM, lauterTun: NUM, kettle: NUM, whirlpool: BOOL, boilRate: NUM, boilMins: NUM, deadSpace: NUM, cycleHrs: NUM, hlt: NUM, hltTemp: NUM, clt: NUM, cltTemp: NUM, hx: STR });
-const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, lastBackup: DATE, user: STR, lockedUntil: DATE };
+const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, lastBackup: DATE, user: STR, lockedUntil: DATE, docYear: STR };
 const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM, cn: NUM };
 
 export function clean(d) {
@@ -99,7 +101,9 @@ export function clean(d) {
   for (const s of out.sales) for (const l of s.lines) {
     const p = out.products.find(x => x.id === l.pid);
     if (p && !l.ml) Object.assign(l, { ml: p.ml, recipeId: p.recipeId });
+    l.hsn ||= p?.hsn || HSN[l.kind];
   }
+  for (const p of out.products) p.hsn ||= HSN[p.kind];
   // Older data booked Ready without the litres: use the volume, as the register did then.
   out.batches.forEach((b, i) => { if (b.readyDate && d?.batches?.[i]?.dutyL == null) b.dutyL = b.volume; });
   // Older brew logs kept one mash temperature: it becomes the first step's actual.
@@ -201,3 +205,14 @@ export function addLot(m, lot) {
   m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
 }
 export const next = (key, prefix, width) => `${prefix}-${String(db.seq[key]++).padStart(width, '0')}`;
+// Beer is malt beer, HSN 2203. Food served in a restaurant is a service, SAC 996331.
+export const HSN = { beer: '2203', food: '996331' };
+// Invoice and credit note numbers restart each financial year, at most 16 characters as GST invoices require: HM/2026-27/0001.
+export function nextDoc(key, prefix) {
+  const fy = fyOf(today());
+  if (db.settings.docYear !== fy) {
+    Object.assign(db.seq, { inv: 1, cn: 1 });
+    db.settings.docYear = fy;
+  }
+  return `${(prefix || 'INV').slice(0, 3)}/${fy}/${String(db.seq[key]++).padStart(4, '0')}`;
+}

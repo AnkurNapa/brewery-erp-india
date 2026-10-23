@@ -236,6 +236,21 @@ export function beerReconcile(count) {
 }
 
 // ---------- money ----------
+// Receivables. Only invoices raised on credit carry a balance; counter sales are paid at the till.
+export const paid = s => sum(s.payments, p => p.amount);
+export const creditsOn = s => db.sales.filter(x => x.type === 'Credit note' && x.ref === s.no);
+// What is still owed: total less payments and credit notes. A negative balance is a refund due to the customer.
+export const balance = s => (s.credit && s.type !== 'Credit note' ? +(invoice(s).total - paid(s) + sum(creditsOn(s), c => invoice(c).total)).toFixed(2) : 0);
+export const AGE_BUCKETS = ['Not due', '1 to 30 days', '31 to 60 days', '61 to 90 days', 'Over 90 days'];
+export const ageOf = (s, t = today()) => { const late = daysBetween(s.dueDate || s.date, t); return late <= 0 ? 0 : late <= 30 ? 1 : late <= 60 ? 2 : late <= 90 ? 3 : 4; };
+export function receivables(t = today()) {
+  const by = {};
+  for (const s of db.sales.filter(s => balance(s) !== 0)) {
+    const r = (by[s.customer] ||= { customer: s.customer, total: 0, ages: [0, 0, 0, 0, 0], invoices: [] });
+    r.total += balance(s); r.ages[ageOf(s, t)] += balance(s); r.invoices.push(s);
+  }
+  return Object.values(by).sort((a, b) => b.total - a.total);
+}
 export function invoice(s) {
   let beer = 0, food = 0;
   for (const l of s.lines) { const a = l.qty * l.price; if (l.kind === 'food') food += a; else beer += a; }
@@ -289,6 +304,8 @@ export function alerts() {
     const lb = lossBalance(b);
     if (lb.pct > target) out.push({ lvl: 'warn', text: `${b.code} has lost ${lb.pct.toFixed(1)}% of its beer, target ${target}%`, href: '#losses' });
   }
+  const overdue = db.sales.filter(s => balance(s) > 0 && (s.dueDate || s.date) < t);
+  if (overdue.length) out.push({ lvl: 'low', text: `${overdue.length} invoice${overdue.length === 1 ? '' : 's'} overdue, ₹${Math.round(sum(overdue, balance)).toLocaleString('en-IN')} to collect`, href: '#partners' });
   for (const c of db.counts.filter(c => c.status === 'Open' && daysBetween(c.date, t) > 3)) out.push({ lvl: 'warn', text: `Stock take ${c.no} is still open`, href: '#count/' + c.id });
   for (const s of beerStock()) if (s.brewBy && s.brewBy <= addDays(t, 3) && !s.inTank) out.push({ lvl: 'warn', text: `Brew ${s.r.name} by ${fmtDate(s.brewBy)}: ${Math.round(s.daysLeft)} days of stock, ${s.cycle} day cycle`, href: '#calendar' });
   return out;

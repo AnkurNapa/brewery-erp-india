@@ -80,9 +80,9 @@ export function demo() {
   ];
 
   const customers = [
-    { id: uid(), name: 'Koramangala Social', type: 'Bar', gstin: '29AAACK1234L1Z2', phone: '98860 12345', city: 'Bengaluru', lat: 12.9352, lng: 77.6245 },
-    { id: uid(), name: 'Whitefield Taproom', type: 'Bar', gstin: '29AAACW5678L1Z3', phone: '98860 67890', city: 'Bengaluru', lat: 12.9698, lng: 77.75 },
-    { id: uid(), name: 'Hoppers Wine Shop', type: 'Retail', gstin: '29AAACH9012L1Z4', phone: '98860 24680', city: 'Mysuru', lat: 12.3051, lng: 76.6551 },
+    { id: uid(), name: 'Koramangala Social', type: 'Bar', gstin: '29AAACK1234L1Z2', phone: '98860 12345', city: 'Bengaluru', lat: 12.9352, lng: 77.6245, terms: 7 },
+    { id: uid(), name: 'Whitefield Taproom', type: 'Bar', gstin: '29AAACW5678L1Z3', phone: '98860 67890', city: 'Bengaluru', lat: 12.9698, lng: 77.75, terms: 30 },
+    { id: uid(), name: 'Hoppers Wine Shop', type: 'Retail', gstin: '29AAACH9012L1Z4', phone: '98860 24680', city: 'Mysuru', lat: 12.3051, lng: 76.6551, terms: 15 },
   ];
   const [kora, white, hoppers] = customers.map(c => c.id);
   const kegs = Array.from({ length: 12 }, (_, i) => ({ id: uid(), code: `K-${String(i + 1).padStart(3, '0')}`, size: i >= 10 ? 50 : 30, status: 'Empty', batchId: '', customerId: '', since: daysAgo(20), history: [] }));
@@ -122,7 +122,10 @@ export function demo() {
   const sales = Array.from({ length: 12 }, (_, i) => {
     const day = 12 - i, lines = [line(products[0], 24 + (i % 4) * 3), line(products[2], 1 + (i % 2)), line(products[5], 6), line(products[6], 4)];
     if (day <= 3) lines.push(line(products[3], 18 + i % 3));
-    return { id: uid(), no: `HM-${String(i + 1).padStart(4, '0')}`, date: daysAgo(day), customer: i % 5 === 0 ? 'Koramangala Social' : 'Walk-in', gstin: i % 5 === 0 ? '29AAACK1234L1Z2' : '', vat: 10, gst: 5, lines };
+    // Koramangala Social buys on 7-day credit; walk-ins pay at the till. The oldest credit bill is part paid and overdue.
+    const credit = i % 5 === 0;
+    return { id: uid(), no: `HM-${String(i + 1).padStart(4, '0')}`, date: daysAgo(day), customer: credit ? 'Koramangala Social' : 'Walk-in', gstin: credit ? '29AAACK1234L1Z2' : '', vat: 10, gst: 5, lines,
+      credit, dueDate: credit ? daysAgo(day - 7) : '', mode: credit ? '' : ['UPI', 'Cash', 'Card'][i % 3], payments: i === 0 ? [{ date: daysAgo(3), amount: 10000, mode: 'Bank transfer', ref: 'UTR 4471' }] : [] };
   });
 
   return {

@@ -7,6 +7,8 @@ export const addDays = (date, d) => iso(new Date(new Date(date + 'T12:00').getTi
 export const daysAgo = d => addDays(today(), -d);
 export const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
 export const pad = (n, w) => String(n).padStart(w, '0');
+// Indian financial year of a date, as used on invoice numbers: 2026-10-23 is 2026-27.
+export const fyOf = d => { const [y, m] = d.split('-').map(Number), s = m >= 4 ? y : y - 1; return `${s}-${String(s + 1).slice(2)}`; };
 export const sum = (arr, f = x => x) => arr.reduce((a, x) => a + (+f(x) || 0), 0);
 // ABV from gravities (Hall's formula, closer than 131.25 x difference at higher gravities).
 export const abv = (og, fg) => (og > fg && fg > 0 ? 76.08 * (og - fg) / (1.775 - og) * (fg / 0.794) : 0);

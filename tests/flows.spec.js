@@ -572,9 +572,9 @@ test('42 audit wave 2: credit notes, reversals, voids, lock date and activity lo
   await page.locator('tr', { hasText: 'HM-0001' }).getByRole('button', { name: 'Cancel' }).click();
   await sheet(page, { reason: 'Wrong table billed' });
   const cn = await db(page, d => { const o = d.sales.find(x => x.no === 'HM-0001'), c = d.sales.find(x => x.id === o.cancelledBy); return { no: c.no, type: c.type, ref: c.ref, date: c.date, qty: c.lines[0].qty + o.lines[0].qty }; });
-  expect(cn).toMatchObject({ no: 'CN-0001', type: 'Credit note', ref: 'HM-0001', qty: 0 });
+  expect(cn).toMatchObject({ no: expect.stringMatching(/^CN\/\d{4}-\d{2}\/0001$/), type: 'Credit note', ref: 'HM-0001', qty: 0 });
   expect(await db(page, d => d.sales.some(x => x.no === 'HM-0001'))).toBe(true);
-  await expect(page.locator('tr', { has: page.locator('td.code', { hasText: /^HM-0001$/ }) })).toContainText('Cancelled by CN-0001');
+  await expect(page.locator('tr', { has: page.locator('td.code', { hasText: /^HM-0001$/ }) })).toContainText(`Cancelled by ${cn.no}`);
 
   // Cancel a dispatch: kegs back to Filled, a reversal is dated today.
   await go(page, 'dispatch');
@@ -603,6 +603,46 @@ test('42 audit wave 2: credit notes, reversals, voids, lock date and activity lo
   await page.keyboard.press('Escape');
 
   expect(await db(page, d => d.log.map(e => e.action))).toEqual(['Cancelled invoice', 'Cancelled dispatch', 'Voided loss record']);
+});
+
+test('43 audit wave 3: credit sales, payments, credit notes, ageing and GST invoice fields', async ({ page }) => {
+  await fresh(page, 'sales');
+  // Overdue credit from the demo shows as an alert and in the ageing.
+  expect(await run(page, async () => (await import('/js/calc.js')).alerts().some(a => /invoices? overdue/.test(a.text)))).toBe(true);
+  const fy = await page.evaluate(() => import('/js/util.js').then(u => u.fyOf(u.today())));
+
+  // A credit invoice gets a per-year number, the customer's terms and a balance.
+  await page.getByRole('button', { name: 'New invoice' }).click();
+  await sheet(page, { customer: 'Whitefield Taproom', pay: 'credit' });
+  const inv = await db(page, d => { const s = d.sales.at(-1); return { no: s.no, credit: s.credit, due: s.dueDate, date: s.date, hsn: s.lines[0].hsn }; });
+  expect(inv).toMatchObject({ no: `HM/${fy}/0001`, credit: true, hsn: '2203' });
+  expect(await page.evaluate(([a, b]) => import('/js/util.js').then(u => u.daysBetween(a, b)), [inv.date, inv.due])).toBe(30);
+  const bal = () => run(page, async () => { const c = await import('/js/calc.js'), s = await import('/js/store.js'); return c.balance(s.db.sales.at(-1)); });
+  const total = await bal();
+
+  // Part payment, then a partial credit note for one returned pint.
+  await page.locator('tr', { hasText: inv.no }).getByRole('button', { name: 'Receive' }).click();
+  await sheet(page, { amount: 100, mode: 'UPI' });
+  expect(await bal()).toBeCloseTo(total - 100, 2);
+  await page.locator('tr', { has: page.locator('td.code', { hasText: inv.no }) }).getByRole('button', { name: 'Credit note' }).click();
+  await sheet(page, { q0: 1, reason: 'Flat pint returned' });
+  const cn = await db(page, d => { const c = d.sales.at(-1); return { no: c.no, ref: c.ref, qty: c.lines.map(l => l.qty) }; });
+  expect(cn).toEqual({ no: `CN/${fy}/0001`, ref: inv.no, qty: [-1] });
+  expect(await bal()).toBeLessThan(total - 100);
+
+  // Receivables by customer with ageing.
+  await go(page, 'partners');
+  await expect(page.locator('section', { hasText: 'Receivables' })).toContainText('Koramangala Social');
+  await expect(page.locator('section', { hasText: 'Receivables' })).toContainText('Whitefield Taproom');
+
+  // The printed invoice carries HSN or SAC and the place of supply.
+  await run(page, async ([no]) => { window.print = () => {}; const s = await import('/js/store.js'), v = await import('/js/views/sales.js'); v.actions.printInv(s.db.sales.find(x => x.no === no).id); }, ['HM-0002']);
+  await expect(page.locator('#print')).toContainText('996331');
+  await expect(page.locator('#print')).toContainText('Place of supply: Karnataka (29)');
+
+  // A new financial year starts the series again.
+  await run(page, async () => { const s = await import('/js/store.js'); s.db.settings.docYear = '2019-20'; s.db.seq.inv = 57; });
+  expect(await run(page, async () => (await import('/js/store.js')).nextDoc('inv', 'HM'))).toBe(`HM/${fy}/0001`);
 });
 
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {
