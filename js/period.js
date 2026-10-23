@@ -11,7 +11,13 @@ let cur = 'month';
 
 export const setPeriod = v => { if (PERIODS.some(([k]) => k === v)) cur = v; };
 export const periodText = () => TEXT[cur];
-export const periodSeg = () => seg('period', PERIODS, cur);
+const long = d => new Date(d + 'T12:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+// The chosen period is filled blue and its dates are written out, so it is never a guess which one is on.
+export const periodSeg = () => {
+  const [from, to] = periodRange();
+  const shown = cur === 'all' ? 'Showing all records' : cur === 'day' ? `Showing today, ${long(to)}` : `Showing ${long(from)} to ${long(to)}`;
+  return `<div class="period">${seg('period', PERIODS, cur)}<p class="period-range" aria-live="polite">${shown}</p></div>`;
+};
 
 // [from, to] as ISO dates. "All time" runs open-ended so future-dated records still count.
 export function periodRange(p = cur, t = today()) {
@@ -26,4 +32,7 @@ export function periodRange(p = cur, t = today()) {
   }[p];
   return [from, p === 'all' ? '9999-12-31' : t];
 }
+// File name stem for a CSV of the period. downloadCsv adds today's date, which is where every period ends,
+// so "sales-2026-10-01-to" becomes sales-2026-10-01-to-2026-10-23.csv.
+export const periodFile = name => (cur === 'all' ? `${name}-all-time` : `${name}-${periodRange()[0]}-to`);
 export const inPeriod = (d, [from, to] = periodRange()) => !!d && d >= from && d <= to;

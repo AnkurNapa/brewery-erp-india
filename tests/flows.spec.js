@@ -492,6 +492,7 @@ test('39 period filter: calendar periods on the April FY, shared across screens'
   await expect(page.locator('.kpi', { hasText: 'Sales this month' })).toBeVisible();
   await page.locator('[data-seg="period"][data-v="day"]').click();
   await expect(page.locator('.kpi', { hasText: 'Sales today' })).toBeVisible();
+  await expect(page.locator('.period-range')).toContainText('Showing today');
   // The choice carries over to the next screen.
   await go(page, 'sales');
   await expect(page.locator('[data-seg="period"][data-v="day"]')).toHaveAttribute('aria-selected', 'true');
@@ -499,6 +500,22 @@ test('39 period filter: calendar periods on the April FY, shared across screens'
   await expect(page.locator('.kpi', { hasText: 'Invoices today' }).locator('b')).toHaveText(String(todays));
   await page.locator('[data-seg="period"][data-v="all"]').click();
   await expect(page.locator('.kpi', { hasText: 'Invoices all time' }).locator('b')).toHaveText(String(await db(page, d => d.sales.length)));
+});
+
+test('40 CSV follows the period filter', async ({ page }) => {
+  const fs = await import('node:fs');
+  await fresh(page, 'sales');
+  const lines = async (btn) => { const [f] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: btn }).click()]); return [f.suggestedFilename(), fs.readFileSync(await f.path(), 'utf8').trim().split('\r\n').length - 1]; };
+  const t = await page.evaluate(() => import('/js/util.js').then(u => u.today()));
+  await page.locator('[data-seg="period"][data-v="all"]').click();
+  expect(await lines('Sales CSV')).toEqual([`sales-all-time-${t}.csv`, await db(page, d => d.sales.length)]);
+  await page.locator('[data-seg="period"][data-v="week"]').click();
+  const [from] = await page.evaluate(() => import('/js/period.js').then(m => m.periodRange()));
+  const inWeek = await db(page, `d => d.sales.filter(s => s.date >= '${from}' && s.date <= '${t}').length`.replace(/^`|`$/g, ''));
+  expect(await lines('Sales CSV')).toEqual([`sales-${from}-to-${t}.csv`, inWeek]);
+  await go(page, 'losses');
+  const lossesInWeek = await db(page, `d => d.losses.filter(l => l.date >= '${from}' && l.date <= '${t}').length`);
+  expect(await lines('Losses CSV')).toEqual([`beer-losses-${from}-to-${t}.csv`, lossesInWeek]);
 });
 
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {

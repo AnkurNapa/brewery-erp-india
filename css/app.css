@@ -140,6 +140,10 @@ textarea { resize: vertical; }
 select.inline { width: auto; min-height: 32px; padding: 4px 28px 4px 10px; font-size: 14px; }
 .seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; gap: 2px; margin-bottom: 16px; overflow-x: auto; max-width: 100%; }
 .panel-head .seg { margin: 0; }
+.period { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.period .seg { margin: 0; }
+.period .seg button[aria-selected="true"] { background: var(--blue); color: #fff; }
+.period-range { margin: 0; font-size: 13px; font-weight: 600; color: var(--blue); }
 .seg button, .seg .segbtn { border: 0; background: transparent; padding: 6px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; min-height: 30px; }
 .seg button[aria-selected="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-weight: 600; }
 .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--blue-t); color: var(--blue); white-space: nowrap; }

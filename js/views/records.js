@@ -4,7 +4,7 @@ import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo,
 import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar } from '../ui.js';
 import { demo } from '../demo.js';
 import { consent, setConsent } from '../analytics.js';
-import { periodSeg, periodRange, periodText, inPeriod } from '../period.js';
+import { periodSeg, periodRange, periodText, inPeriod, periodFile } from '../period.js';
 import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp } from '../calc.js';
 
 const UTIL_TYPES = { Electricity: 'kWh', Water: 'kL', 'LPG / PNG': 'kg', CO2: 'kg', Diesel: 'L', Other: '' };
@@ -158,9 +158,9 @@ export const actions = {
   },
   csvTax() { const m = taxMonths(); downloadCsv('vat-gst-monthly', ['Month', 'Beer sales', 'VAT', 'Food sales', 'CGST', 'SGST'], Object.keys(m).sort().map(k => [k, ...['beer', 'vat', 'food', 'cgst', 'sgst'].map(f => +m[k][f].toFixed(2))])); },
   csvSales() {
-    downloadCsv('sales', ['Invoice', 'Date', 'Customer', 'GSTIN', 'Type', 'Beer', 'Food', 'VAT', 'CGST', 'SGST', 'Total'], db.sales.map(s => { const c = invoice(s); return [s.no, s.date, s.customer, s.gstin, s.dispatchId ? 'Trade' : 'Taproom', ...[c.beer, c.food, c.vat, c.cgst, c.sgst, c.total].map(x => +x.toFixed(2))]; }));
+    downloadCsv(periodFile('sales'), ['Invoice', 'Date', 'Customer', 'GSTIN', 'Type', 'Beer', 'Food', 'VAT', 'CGST', 'SGST', 'Total'], db.sales.filter(s => inPeriod(s.date)).map(s => { const c = invoice(s); return [s.no, s.date, s.customer, s.gstin, s.dispatchId ? 'Trade' : 'Taproom', ...[c.beer, c.food, c.vat, c.cgst, c.sgst, c.total].map(x => +x.toFixed(2))]; }));
   },
-  csvLosses() { downloadCsv('beer-losses', ['Date', 'Batch', 'Beer', 'Stage', 'Litres', 'Reason'], db.losses.map(l => { const b = db.batches.find(x => x.id === l.batchId); return [l.date, b?.code || '', rec(b?.recipeId)?.name || '', l.stage, l.litres, l.reason]; })); },
+  csvLosses() { downloadCsv(periodFile('beer-losses'), ['Date', 'Batch', 'Beer', 'Stage', 'Litres', 'Reason'], db.losses.filter(l => inPeriod(l.date)).map(l => { const b = db.batches.find(x => x.id === l.batchId); return [l.date, b?.code || '', rec(b?.recipeId)?.name || '', l.stage, l.litres, l.reason]; })); },
   csvAdjust() { downloadCsv('stock-adjustments', ['Date', 'Count', 'Item', 'Change', 'Value', 'Reason'], db.adjustments.map(a => [a.date, db.counts.find(c => c.id === a.countId)?.no || '', a.label, a.delta, a.value, a.reason])); },
   analyticsOn() { setConsent('granted'); document.getElementById('consent').hidden = true; toast('Analytics on. Thank you.'); commit(); },
   analyticsOff() { setConsent('denied'); document.getElementById('consent').hidden = true; toast('Analytics off. The Analytics cookies were removed.'); commit(); },
