@@ -132,7 +132,7 @@ export const SETTINGS_FIELDS = [
   { k: 'cipDays', label: 'CIP valid for (days)', type: 'number' }, { k: 'lossTarget', label: 'Beer loss target per batch (%)', type: 'number' },
   { k: 'lossAllow', label: 'Excise loss allowance (%)', type: 'number' },
   { k: 'exciseBasis', label: 'Book excise', type: 'select', options: [{ v: 'Ready', t: 'When a batch is marked Ready' }, { v: 'Removal', t: 'On removal (taproom pour or dispatch)' }] },
-  { k: 'tradeRateL', label: 'Trade price (₹ per litre)', type: 'number' },
+  { k: 'tradeRateL', label: 'Trade price (₹ per litre)', type: 'number' }, { k: 'kegValue', label: 'Keg value (₹ each, to price lost kegs)', type: 'number' },
 ];
 
 export const actions = {

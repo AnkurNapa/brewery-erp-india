@@ -80,18 +80,24 @@ export function demo() {
   ];
 
   const customers = [
-    { id: uid(), name: 'Koramangala Social', type: 'Bar', gstin: '29AAACK1234L1Z2', phone: '98860 12345', city: 'Bengaluru' },
-    { id: uid(), name: 'Whitefield Taproom', type: 'Bar', gstin: '29AAACW5678L1Z3', phone: '98860 67890', city: 'Bengaluru' },
-    { id: uid(), name: 'Hoppers Wine Shop', type: 'Retail', gstin: '29AAACH9012L1Z4', phone: '98860 24680', city: 'Mysuru' },
+    { id: uid(), name: 'Koramangala Social', type: 'Bar', gstin: '29AAACK1234L1Z2', phone: '98860 12345', city: 'Bengaluru', lat: 12.9352, lng: 77.6245 },
+    { id: uid(), name: 'Whitefield Taproom', type: 'Bar', gstin: '29AAACW5678L1Z3', phone: '98860 67890', city: 'Bengaluru', lat: 12.9698, lng: 77.75 },
+    { id: uid(), name: 'Hoppers Wine Shop', type: 'Retail', gstin: '29AAACH9012L1Z4', phone: '98860 24680', city: 'Mysuru', lat: 12.3051, lng: 76.6551 },
   ];
-  const [kora, white] = customers.map(c => c.id);
-  const kegs = Array.from({ length: 12 }, (_, i) => ({ id: uid(), code: `K-${String(i + 1).padStart(3, '0')}`, size: i >= 10 ? 50 : 30, status: 'Empty', batchId: '', customerId: '', since: daysAgo(20) }));
+  const [kora, white, hoppers] = customers.map(c => c.id);
+  const kegs = Array.from({ length: 12 }, (_, i) => ({ id: uid(), code: `K-${String(i + 1).padStart(3, '0')}`, size: i >= 10 ? 50 : 30, status: 'Empty', batchId: '', customerId: '', since: daysAgo(20), history: [] }));
   const K = c => kegs.find(k => k.code === c);
-  Object.assign(K('K-001'), { status: 'At customer', customerId: white, since: daysAgo(35) });
-  for (const c of ['K-002', 'K-003']) Object.assign(K(c), { status: 'At customer', batchId: B('B-001'), customerId: kora, since: daysAgo(12) });
-  Object.assign(K('K-004'), { status: 'Filled', batchId: B('B-001'), since: daysAgo(13) });
-  for (const c of ['K-005', 'K-006']) Object.assign(K(c), { status: 'Filled', batchId: B('B-002'), since: daysAgo(2) });
-  Object.assign(K('K-007'), { status: 'Cleaning', since: daysAgo(1) });
+  // Two past turns per keg so the keg map and turn figures have something to show. Those batches are older than the demo, so the moves carry none.
+  const mv = (k, ago, status, batchId = '', customerId = '') => { k.history.push({ date: daysAgo(ago), status, batchId, customerId }); Object.assign(k, { status, batchId, customerId, since: daysAgo(ago) }); };
+  const trip = (k, start, cid, out) => { mv(k, start, 'Filled'); mv(k, start - 2, 'At customer', '', cid); mv(k, start - 2 - out, 'Cleaning'); mv(k, start - 3 - out, 'Empty'); };
+  kegs.slice(0, 10).forEach((k, i) => { trip(k, 110 - i, [kora, white, hoppers][i % 3], [9, 16, 24][i % 3]); trip(k, 70 - i, [white, hoppers, kora][i % 3], [11, 21, 8][i % 3]); });
+  mv(K('K-001'), 37, 'Filled'); mv(K('K-001'), 35, 'At customer', '', white);
+  for (const c of ['K-002', 'K-003']) { mv(K(c), 13, 'Filled', B('B-001')); mv(K(c), 12, 'At customer', B('B-001'), kora); }
+  mv(K('K-004'), 13, 'Filled', B('B-001'));
+  for (const c of ['K-005', 'K-006']) mv(K(c), 2, 'Filled', B('B-002'));
+  mv(K('K-007'), 20, 'Filled'); mv(K('K-007'), 18, 'At customer', '', white); mv(K('K-007'), 1, 'Cleaning');
+  mv(K('K-011'), 20, 'Empty');
+  mv(K('K-012'), 75, 'Filled'); mv(K('K-012'), 73, 'At customer', '', hoppers); mv(K('K-012'), 15, 'Lost', '', hoppers);
 
   const packs = [
     { id: uid(), batchId: B('B-001'), date: daysAgo(13), format: 'Keg 30 L', unitL: 30, units: 3, kegIds: ['K-002', 'K-003', 'K-004'].map(c => K(c).id) },
@@ -100,9 +106,9 @@ export function demo() {
   ];
   const dispatches = [{
     id: uid(), no: 'D-0001', date: daysAgo(12), customerId: kora, lines: [
-      { ref: 'k:' + K('K-002').id, label: 'Keg K-002 · Indiranagar IPA B-001', qty: 1, litres: 30 },
-      { ref: 'k:' + K('K-003').id, label: 'Keg K-003 · Indiranagar IPA B-001', qty: 1, litres: 30 },
-      { ref: 'p:' + packs[1].id, label: 'Can 330 ml · Indiranagar IPA B-001', qty: 120, litres: 39.6 },
+      { ref: 'k:' + K('K-002').id, label: 'Keg K-002 · Indiranagar IPA B-001', qty: 1, litres: 30, batchId: B('B-001') },
+      { ref: 'k:' + K('K-003').id, label: 'Keg K-003 · Indiranagar IPA B-001', qty: 1, litres: 30, batchId: B('B-001') },
+      { ref: 'p:' + packs[1].id, label: 'Can 330 ml · Indiranagar IPA B-001', qty: 120, litres: 39.6, batchId: B('B-001') },
     ],
   }];
 
@@ -120,7 +126,7 @@ export function demo() {
   });
 
   return {
-    settings: { brewhouse: { type: '2 vessel', lengthHL: 5, mashTun: 750, lauterTun: 0, kettle: 650, whirlpool: true, boilRate: 8, boilMins: 60, deadSpace: 20, cycleHrs: 7, hlt: 1000, hltTemp: 80, clt: 1000, cltTemp: 4, hx: 'Two-stage plate' }, name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, lastBackup: daysAgo(2) },
+    settings: { brewhouse: { type: '2 vessel', lengthHL: 5, mashTun: 750, lauterTun: 0, kettle: 650, whirlpool: true, boilRate: 8, boilMins: 60, deadSpace: 20, cycleHrs: 7, hlt: 1000, hltTemp: 80, clt: 1000, cltTemp: 4, hx: 'Two-stage plate' }, name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, kegValue: 9000, lastBackup: daysAgo(2) },
     seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13, count: 2 },
     materials, recipes, products, tanks, batches, sales, kegs, customers, vendors, packs, dispatches,
     equipment: [

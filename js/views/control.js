@@ -137,7 +137,7 @@ export const actions = {
         const r = rec(b.recipeId);
         return { ref: 'b:' + b.id, label: `${tank(b.tankId)?.name || 'No tank'} · ${b.code} ${r?.name || ''}`, unit: 'L', system: +tankLeft(b).toFixed(1), counted: '', cost: r ? +recipeCalc(r).costL.toFixed(2) : 0, reason: '' };
       }),
-      { ref: 'k:all', label: 'Kegs owned, all states', unit: 'kegs', system: db.kegs.length, counted: '', cost: 0, reason: '' },
+      { ref: 'k:all', label: 'Kegs owned, not marked lost', unit: 'kegs', system: db.kegs.filter(k => k.status !== 'Lost').length, counted: '', cost: 0, reason: '' },
     ];
     const c = { id: uid(), no: next('count', 'ST', 4), date: today(), status: 'Open', lines };
     db.counts.push(c);

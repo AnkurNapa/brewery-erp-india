@@ -1,7 +1,8 @@
 // Menu, taproom invoices, dispatch to trade customers, customer and vendor masters.
-import { db, next, commit } from '../store.js';
+import { db, next, commit, moveKeg, undoKeg } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysBetween } from '../util.js';
 import { head, btn, link, pill, panel, table, openForm, seg } from '../ui.js';
+import { parseLoc } from '../kegmap.js';
 import { rec, prod, cust, keg, pack, invoice, packLeft, beerStock, removalDuty, beerLitres } from '../calc.js';
 
 const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
@@ -58,7 +59,25 @@ const PROD_FIELDS = () => [
 const CUST_FIELDS = [
   { k: 'name', label: 'Name', req: 1 }, { k: 'type', label: 'Type', list: ['Bar', 'Restaurant', 'Retail', 'Distributor', 'Event'] },
   { k: 'city', label: 'City' }, { k: 'phone', label: 'Phone' }, { k: 'gstin', label: 'GSTIN' },
+  { k: 'loc', label: 'Map location (latitude, longitude)', wide: 1 },
 ];
+const LOC_NOTE = 'For the keg map. In Google Maps, press and hold the place and copy the numbers, or stand at the bar and <button type="button" class="link" data-geo>use my location</button>.';
+// The form shows one "lat, lng" box; the record keeps two numbers. A box that does not parse clears the pin.
+const custVals = c => ({ ...c, loc: c.lat !== '' && c.lng !== '' ? `${c.lat}, ${c.lng}` : '' });
+const custSave = ({ loc, ...v }) => {
+  const p = parseLoc(loc);
+  if (loc && !p) { toast('Map location should look like 12.9716, 77.5946'); return null; }
+  return { ...v, lat: p?.lat ?? '', lng: p?.lng ?? '' };
+};
+const geoButton = () => {
+  const b = document.querySelector('#modal [data-geo]');
+  if (!b) return;
+  b.onclick = () => {
+    if (!navigator.geolocation) return toast('This browser cannot share its location');
+    navigator.geolocation.getCurrentPosition(p => { document.querySelector('#modal [name=loc]').value = `${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`; },
+      () => toast('Location blocked. Allow it for this site, or paste the numbers'), { enableHighAccuracy: true, timeout: 10000 });
+  };
+};
 const VENDOR_FIELDS = [{ k: 'name', label: 'Name', req: 1 }, { k: 'supplies', label: 'Supplies' }, { k: 'phone', label: 'Phone' }, { k: 'gstin', label: 'GSTIN' }];
 
 const unitL = id => (id.startsWith('k:') ? keg(id.slice(2))?.size || 0 : pack(id.slice(2))?.unitL || 0);
@@ -118,13 +137,14 @@ export const actions = {
     const opts = dispatchOpts();
     if (!opts.length) return toast('Nothing packaged and ready to dispatch');
     if (!db.customers.length) return toast('Add a customer first');
-    const first = kegId && opts.find(o => o.id === 'k:' + kegId);
+    // One keg from its page, or a comma list from bulk scan.
+    const picked = String(kegId || '').split(',').filter(Boolean).map(id => opts.find(o => o.id === 'k:' + id)).filter(Boolean);
     openForm({
       title: 'New dispatch',
       fields: [{ k: 'customerId', label: 'Customer', type: 'select', options: db.customers.map(c => ({ v: c.id, t: c.name })) }, { k: 'date', label: 'Date', type: 'date' },
         { k: 'invoice', label: 'Trade invoice', type: 'select', options: [{ v: 'yes', t: 'Raise a tax invoice' }, { v: 'no', t: 'No invoice (already billed)' }] }],
       vals: { customerId: db.customers[0].id, date: today(), invoice: 'yes' },
-      lines: { label: 'Keg or package', rows: first ? [{ id: first.id, qty: 1 }] : [], opts, cols: [{ k: 'qty', label: 'Qty', def: () => 1 }, { k: 'price', label: 'Rate ₹', def: id => Math.round(unitL(id) * (db.settings.tradeRateL || 0)) }] },
+      lines: { label: 'Keg or package', rows: picked.map(o => ({ id: o.id, qty: 1 })), opts, cols: [{ k: 'qty', label: 'Qty', def: () => 1 }, { k: 'price', label: 'Rate ₹', def: id => Math.round(unitL(id) * (db.settings.tradeRateL || 0)) }] },
       note: `Kegs always count as one each. Rates default to the trade price of ₹${db.settings.tradeRateL || 0} per litre from Settings.`,
       onSave: (v, rows) => {
         if (!rows.length) { toast('Add at least one line'); return false; }
@@ -135,11 +155,11 @@ export const actions = {
             const k = keg(r.id.slice(2));
             if (!k || seen.has(k.id)) continue;
             seen.add(k.id);
-            Object.assign(k, { status: 'At customer', customerId: v.customerId, since: v.date });
-            lines.push({ ref: r.id, label, qty: 1, litres: k.size, price: r.price });
+            moveKeg(k, 'At customer', v.date, { customerId: v.customerId });
+            lines.push({ ref: r.id, label, qty: 1, litres: k.size, price: r.price, batchId: k.batchId });
           } else {
             const p = pack(r.id.slice(2)), qty = Math.min(r.qty, packLeft(p));
-            lines.push({ ref: r.id, label, qty, litres: +(qty * p.unitL).toFixed(2), price: r.price });
+            lines.push({ ref: r.id, label, qty, litres: +(qty * p.unitL).toFixed(2), price: r.price, batchId: p.batchId });
           }
         }
         const c = cust(v.customerId), litres = lines.reduce((a, l) => a + l.litres, 0);
@@ -159,13 +179,20 @@ export const actions = {
     const d = db.dispatches.find(x => x.id === id);
     if (!confirm(`Delete ${d.no}? Kegs on it go back to Filled${d.invoiceId ? ' and its trade invoice is deleted' : ''}.`)) return;
     db.sales = db.sales.filter(s => s.id !== d.invoiceId);
-    for (const l of d.lines) if (l.ref.startsWith('k:')) { const k = keg(l.ref.slice(2)); if (k?.status === 'At customer') Object.assign(k, { status: 'Filled', customerId: '' }); }
+    for (const l of d.lines) if (l.ref.startsWith('k:')) { const k = keg(l.ref.slice(2)); if (k?.status === 'At customer') undoKeg(k, 'Filled', { customerId: '' }); }
     db.dispatches = db.dispatches.filter(x => x.id !== id);
     commit();
   },
 
-  newCust() { openForm({ title: 'Add customer', fields: CUST_FIELDS, vals: { type: 'Bar' }, onSave: v => { db.customers.push({ id: uid(), ...v }); } }); },
-  editCust(id) { const c = cust(id); openForm({ title: `Edit ${c.name}`, fields: CUST_FIELDS, vals: c, onSave: v => { Object.assign(c, v); } }); },
+  newCust() {
+    openForm({ title: 'Add customer', fields: CUST_FIELDS, vals: { type: 'Bar' }, note: LOC_NOTE, onSave: v => { const c = custSave(v); if (!c) return false; db.customers.push({ id: uid(), ...c }); } });
+    geoButton();
+  },
+  editCust(id) {
+    const c = cust(id);
+    openForm({ title: `Edit ${c.name}`, fields: CUST_FIELDS, vals: custVals(c), note: LOC_NOTE, onSave: v => { const n = custSave(v); if (!n) return false; Object.assign(c, n); } });
+    geoButton();
+  },
   delCust(id) { if (db.kegs.some(k => k.customerId === id)) return toast('This customer still has kegs'); remove('customers', id, 'customer'); },
   newVendor() { openForm({ title: 'Add vendor', fields: VENDOR_FIELDS, onSave: v => { db.vendors.push({ id: uid(), ...v }); } }); },
   editVendor(id) { const v0 = db.vendors.find(x => x.id === id); openForm({ title: `Edit ${v0.name}`, fields: VENDOR_FIELDS, vals: v0, onSave: v => { Object.assign(v0, v); } }); },

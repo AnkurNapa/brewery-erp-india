@@ -432,3 +432,44 @@ test('34 legal pages: linked from the app and cover the key points', async ({ pa
   await expect(page.locator('main')).toContainText('placeholders');
   await expect(page.locator('main')).toContainText('laws of India');
 });
+
+test('35 kegs: turns, history, lost, bulk pickup, own codes and recall trace', async ({ page }) => {
+  await fresh(page, 'equipment');
+  await expect(page.locator('#kegmap')).toBeVisible();
+  const s = await page.evaluate(() => import('/js/calc.js').then(c => c.kegStats()));
+  expect(s.avgCycle).toBeGreaterThan(0);
+  expect([s.lost, s.lostValue]).toEqual([1, 9000]);
+  await expect(page.locator('section', { hasText: 'Keg turns' })).toContainText('Hoppers Wine Shop');
+
+  await go(page, 'scan/K-002');
+  await expect(page.locator('section', { hasText: 'History' }).locator('li')).toHaveCount(10);
+  await page.getByRole('button', { name: 'Mark lost' }).click();
+  expect(await db(page, d => d.kegs.find(k => k.code === 'K-002').history.at(-1).status)).toBe('Lost');
+
+  await go(page, 'kegscan');
+  await page.locator('#scanForm [name=code]').fill('k-003');
+  await page.locator('#scanForm [name=code]').press('Enter');
+  await page.getByRole('button', { name: 'Picked up (1)' }).click();
+  expect(await db(page, d => { const k = d.kegs.find(k => k.code === 'K-003'); return [k.status, k.batchId, k.history.at(-1).status]; })).toEqual(['Cleaning', '', 'Cleaning']);
+
+  // K-003 no longer holds B-001, yet its dispatch still traces back to the batch.
+  const b1 = await db(page, d => d.batches.find(b => b.code === 'B-001').id);
+  await go(page, 'blr/' + b1);
+  await expect(page.locator('main')).toContainText('D-0001');
+
+  await go(page, 'equipment');
+  await page.getByRole('button', { name: 'Add keg' }).click();
+  await sheet(page, { codes: 'BLEFA-0001\nBLEFA-0002' });
+  expect(await db(page, d => d.kegs.filter(k => k.code.startsWith('BLEFA')).length)).toBe(2);
+});
+
+test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {
+  await fresh(page, 'partners');
+  await page.locator('tr', { hasText: 'Koramangala Social' }).getByRole('button', { name: 'Edit' }).click();
+  await expect(page.locator('#modal [name=loc]')).toHaveValue('12.9352, 77.6245');
+  await page.locator('#modal [name=loc]').fill('somewhere');
+  await page.locator('#modal .sheet-head button.strong').click();
+  await expect(page.locator('#toast')).toContainText('Map location should look like');
+  await sheet(page, { loc: '12.97, 77.59' });
+  expect(await db(page, d => { const c = d.customers.find(c => c.name === 'Koramangala Social'); return [c.lat, c.lng]; })).toEqual([12.97, 77.59]);
+});

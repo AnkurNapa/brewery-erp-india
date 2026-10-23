@@ -30,7 +30,7 @@ const NAV = [
 const TABS = [['dash', 'Home'], ['tanks', 'Tanks'], ['batches', 'Batches'], ['sales', 'Sales']];
 // Simple line glyphs for the phone tab bar, drawn inline so there is no icon font to load.
 // Detail screens get an iOS style back button to their parent list.
-const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'], recipe: ['recipes', 'Recipes'], compare: ['recipes', 'Recipes'] };
+const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], kegscan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'], recipe: ['recipes', 'Recipes'], compare: ['recipes', 'Recipes'] };
 let depth = 0, prev = null, cur = null;
 const TITLES = Object.fromEntries(NAV.flatMap(([, items]) => items));
 
@@ -42,7 +42,7 @@ function route() {
 function draw() {
   if (brew.settle()) persist();
   const { view, arg } = route(), n = alerts().length;
-  const active = { blr: 'batches', scan: 'equipment', count: 'stocktake', recipe: 'recipes', compare: 'recipes' }[view] || view;
+  const active = { blr: 'batches', scan: 'equipment', kegscan: 'equipment', count: 'stocktake', recipe: 'recipes', compare: 'recipes' }[view] || view;
   $('brand').textContent = db.settings.name;
   $('sidenav').innerHTML = NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${icon(k)}<span class="nav-label">${t}</span>${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
   $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${icon(k, 'tab-ico')}<span>${t}</span></a>`).join('')
@@ -54,7 +54,7 @@ function draw() {
 }
 
 // Only fixed screen names go to analytics: detail pages carry record names in their titles.
-const DETAIL = { blr: 'Batch record', recipe: 'Recipe', compare: 'Compare recipes', count: 'Stock take count', scan: 'Keg or machine' };
+const DETAIL = { blr: 'Batch record', recipe: 'Recipe', compare: 'Compare recipes', count: 'Stock take count', scan: 'Keg or machine', kegscan: 'Scan kegs' };
 const reportView = () => setTimeout(() => { const v = route().view; analytics.pageView(v, TITLES[v] || DETAIL[v] || 'Home'); });
 load();
 analytics.init();
@@ -121,6 +121,7 @@ $('q').addEventListener('input', e => {
 $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = $('results').querySelector('a'); if (a) location.hash = a.getAttribute('href').slice(1); } if (e.key === 'Escape') { e.target.value = ''; $('results').innerHTML = ''; } });
 $('main').addEventListener('submit', e => {
   if (e.target.id === 'setupForm') { e.preventDefault(); return setup.saveSetup(e.target); }
+  if (e.target.id === 'scanForm') { e.preventDefault(); return stores.addScan(e.target); }
   if (e.target.id !== 'settingsForm') return;
   e.preventDefault();
   records.saveSettings(e.target);

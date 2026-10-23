@@ -32,7 +32,9 @@ It opens with a demo brewpub loaded. Tap **Start my brewery** in the bar on Home
 
 **Packaging.** Kegging, canning and bottling runs, capped at the litres left in the tank. Kegs are picked from empty stock and tagged to the batch.
 
-**Dispatch.** Kegs and packaged beer sent to customers. Kegs are tracked through Filled, At customer, Cleaning and Empty.
+**Dispatch.** Kegs and packaged beer sent to customers. Kegs are tracked through Filled, At customer, Cleaning, Empty and Lost.
+
+**Kegs.** Every keg keeps its own history: filled with which batch, sent to whom, back when. A map on OpenStreetMap shows each customer with the kegs they hold, red where one has been out over 30 days. Keg turns show the average days from filling to return, turns a year, the slowest accounts and the value of lost kegs. Bulk scan moves a whole load at once: scan the QR tags with the phone camera (Chrome on Android) or type the codes. Kegs with barcodes etched by the maker keep their own codes. The keg register downloads as CSV. Dispatch lines record the batch they shipped from, so a recall still finds bars that got a batch after the kegs came back and were refilled.
 
 **Batch lifecycle record.** One page per batch: brew day against target, deviations, ingredients issued with cost, fermentation curve, packaging, where every keg is now, dispatches and excise. Printable.
 

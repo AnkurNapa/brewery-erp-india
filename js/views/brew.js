@@ -1,5 +1,5 @@
 // Tanks, batches, batch lifecycle record, recipes and packaging.
-import { db, next, commit, consume, addLot, STATUSES, IN_TANK, LOSS_STAGES } from '../store.js';
+import { db, next, commit, consume, addLot, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween, sgFromP } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
 import { mat, rec, recipeAt, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
@@ -89,7 +89,8 @@ export const views = {
     if (!b) return head('Batch not found') + '<p><a class="link" href="#batches">Back to batches</a></p>';
     const r = recipeAt(rec(b.recipeId), b.recipeVersion), t = r ? recipeCalc(r) : null, dev = deviations(b), cost = batchCost(b), packs = db.packs.filter(p => p.batchId === b.id);
     const kegs = db.kegs.filter(k => k.batchId === b.id), packed = batchPackedL(b);
-    const disp = db.dispatches.filter(d => d.lines.some(l => packs.some(p => l.ref === 'p:' + p.id) || kegs.some(k => l.ref === 'k:' + k.id)));
+    // Lines carry the batch they shipped from, so kegs picked up and refilled since still trace back here. Older lines fall back to the keg's current batch.
+    const disp = db.dispatches.filter(d => d.lines.some(l => l.batchId === b.id || (!l.batchId && (packs.some(p => l.ref === 'p:' + p.id) || kegs.some(k => l.ref === 'k:' + k.id)))));
     const w = b.brew, row = (label, target, actual, unit = '') => `<tr><td>${label}</td><td class="n">${target}</td><td class="n">${actual === '' ? '' : actual + unit}</td></tr>`;
     return head(`${esc(b.code)} · ${esc(r?.name || '')}`, `Batch lifecycle record · recipe v${b.recipeVersion} · ${esc(tank(b.tankId)?.name || 'no tank')} · brewed ${fmtDate(b.date)}${b.readyDate ? ' · ready ' + fmtDate(b.readyDate) : ''}`,
       `${pill(b.status, statusCls(b.status))} ${btn('Print', 'printBlr', b.id, 'ghost')} ${btn('Log reading', 'logReading', b.id)}`)
@@ -230,7 +231,7 @@ export const actions = {
         if (v.format.startsWith('Keg')) {
           const free = db.kegs.filter(k => k.status === 'Empty' && k.size === unitL).slice(0, v.units);
           if (free.length < v.units) { toast(`Only ${free.length} empty ${unitL} L kegs available`); return false; }
-          free.forEach(k => Object.assign(k, { status: 'Filled', batchId: b.id, customerId: '', since: v.date }));
+          free.forEach(k => moveKeg(k, 'Filled', v.date, { batchId: b.id, customerId: '' }));
           kegIds = free.map(k => k.id);
         }
         db.packs.push({ id: uid(), batchId: b.id, date: v.date, format: v.format, unitL, units: v.units, kegIds });
@@ -277,7 +278,7 @@ export const actions = {
   delPack(id) {
     const p = db.packs.find(x => x.id === id);
     if (!confirm('Delete this packaging run? Its kegs go back to empty.')) return;
-    p.kegIds.forEach(k => { const kg = keg(k); if (kg?.status === 'Filled') Object.assign(kg, { status: 'Empty', batchId: '' }); });
+    p.kegIds.forEach(k => { const kg = keg(k); if (kg?.status === 'Filled') undoKeg(kg, 'Empty', { batchId: '' }); });
     db.packs = db.packs.filter(x => x.id !== id);
     commit();
   },

@@ -7,7 +7,7 @@ export const head = (title, sub = '', btn = '') =>
 export const btn = (label, act, id = '', cls = 'primary') => `<button class="${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
 export const link = (label, act, id = '', cls = '') => `<button class="link ${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
 export const pill = (txt, cls = '') => `<span class="pill ${cls}">${esc(txt)}</span>`;
-export const statusCls = s => ({ Ready: 'ok', 'Sold out': 'grey', Conditioning: 'info', Planned: 'grey', Brewing: 'orange', Fermenting: 'orange', Open: 'orange', Done: 'ok', Received: 'ok', Approved: 'ok', Pending: 'orange', Rejected: 'low', Empty: 'grey', Filled: 'ok', 'At customer': 'info', Cleaning: 'orange' }[s] || '');
+export const statusCls = s => ({ Ready: 'ok', 'Sold out': 'grey', Conditioning: 'info', Planned: 'grey', Brewing: 'orange', Fermenting: 'orange', Open: 'orange', Done: 'ok', Received: 'ok', Approved: 'ok', Pending: 'orange', Rejected: 'low', Empty: 'grey', Filled: 'ok', 'At customer': 'info', Cleaning: 'orange', Lost: 'low' }[s] || '');
 export const panel = (title, body, extra = '') => `<section class="panel">${title ? `<div class="panel-head"><h3>${title}</h3>${extra}</div>` : ''}${body}</section>`;
 export const seg = (name, opts, cur) => `<div class="seg" role="tablist">${opts.map(([v, t]) => `<button role="tab" data-seg="${name}" data-v="${v}" aria-selected="${v === cur}">${t}</button>`).join('')}</div>`;
 
@@ -21,6 +21,7 @@ export function field(f, v) {
   const attrs = `name="${f.k}" ${f.req ? 'required' : ''} ${f.ro ? 'readonly' : ''}`;
   let input;
   if (f.type === 'select') input = `<select ${attrs}>${f.options.map(o => `<option value="${esc(o.v)}" ${String(o.v) === String(v ?? '') ? 'selected' : ''}>${esc(o.t)}</option>`).join('')}</select>`;
+  else if (f.type === 'textarea') input = `<textarea ${attrs} rows="3">${esc(v ?? '')}</textarea>`;
   else input = `<input ${attrs} type="${f.type || 'text'}" ${f.type === 'number' ? `step="${f.step || 'any'}" min="0"` : ''} ${f.list ? `list="dl-${f.k}"` : ''} value="${esc(v ?? '')}">`
     + (f.list ? `<datalist id="dl-${f.k}">${f.list.map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : '');
   return `<label class="${f.wide ? 'wide' : ''}"><span>${esc(f.label)}</span>${input}</label>`;

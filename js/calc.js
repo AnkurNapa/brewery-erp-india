@@ -284,3 +284,30 @@ export function alerts() {
   for (const s of beerStock()) if (s.brewBy && s.brewBy <= addDays(t, 3) && !s.inTank) out.push({ lvl: 'warn', text: `Brew ${s.r.name} by ${fmtDate(s.brewBy)}: ${Math.round(s.daysLeft)} days of stock, ${s.cycle} day cycle`, href: '#calendar' });
   return out;
 }
+
+// Keg turns from each keg's history. A cycle runs from filling to the next return to the brewery.
+// A fill undone before it left (two fills in a row) is not a cycle. Days out counts each visit to a customer,
+// up to today for kegs still there.
+export function kegStats() {
+  const t = today(), cycles = [], visits = {};
+  for (const k of db.kegs) {
+    const h = k.history;
+    h.forEach((e, i) => {
+      const rest = h.slice(i + 1);
+      if (e.status === 'Filled') {
+        const back = rest.findIndex(x => x.status === 'Cleaning'), refill = rest.findIndex(x => x.status === 'Filled');
+        if (back >= 0 && (refill < 0 || back < refill)) cycles.push(daysBetween(e.date, rest[back].date));
+      }
+      if (e.status === 'At customer' && e.customerId) {
+        const end = rest.find(x => x.status !== 'At customer')?.date || (k.status === 'At customer' ? t : '');
+        if (end) (visits[e.customerId] ||= []).push(daysBetween(e.date, end));
+      }
+    });
+  }
+  const avgCycle = cycles.length ? Math.round(sum(cycles, d => d) / cycles.length) : 0;
+  const lost = db.kegs.filter(k => k.status === 'Lost');
+  const accounts = Object.entries(visits).map(([cid, d]) => ({ c: cust(cid), visits: d.length, avgDays: Math.round(sum(d, x => x) / d.length),
+    out: db.kegs.filter(k => k.status === 'At customer' && k.customerId === cid).length, lost: lost.filter(k => k.customerId === cid).length }))
+    .filter(a => a.c).sort((a, b) => b.avgDays - a.avgDays);
+  return { cycles: cycles.length, avgCycle, turns: avgCycle ? +(365 / avgCycle).toFixed(1) : 0, lost: lost.length, lostValue: lost.length * (db.settings.kegValue || 0), accounts };
+}

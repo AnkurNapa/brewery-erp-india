@@ -1,13 +1,13 @@
 // All data lives in one object in localStorage. Every load and import goes
 // through clean(), which rebuilds each record from a schema so a tampered
 // backup cannot smuggle markup into ids, dates or numbers.
-import { toast } from './util.js';
+import { toast, today } from './util.js';
 import { demo } from './demo.js';
 
 const KEY = 'brewhouse-erp-v2';
 export const STATUSES = ['Planned', 'Brewing', 'Fermenting', 'Conditioning', 'Ready', 'Sold out'];
 export const IN_TANK = ['Brewing', 'Fermenting', 'Conditioning'];
-export const KEG_STATES = ['Empty', 'Filled', 'At customer', 'Cleaning'];
+export const KEG_STATES = ['Empty', 'Filled', 'At customer', 'Cleaning', 'Lost'];
 export const HYGIENE = ['Cleaned', 'Sanitised', 'Dirty'];
 export const CIP_CYCLES = ['Full CIP', 'Caustic', 'Acid', 'Sanitiser', 'Rinse'];
 export const LOSS_STAGES = ['Fermentation', 'Transfer', 'Packaging', 'Taproom', 'Dispatch', 'QC samples', 'Dump', 'Unexplained'];
@@ -20,6 +20,7 @@ const NUM = v => (Number.isFinite(+v) ? +v : 0);
 const OPT = v => (v === '' || v == null || !Number.isFinite(+v) ? '' : +v);
 const DATE = v => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
 const BOOL = v => v === true;
+const GEO = max => v => (v === '' || v == null || !(Math.abs(+v) <= max) ? '' : +v);
 const ONE = list => v => (list.includes(v) ? v : list[0]);
 const obj = schema => x => { const o = {}; for (const k in schema) o[k] = schema[k](x?.[k]); return o; };
 const LIST = schema => v => (Array.isArray(v) ? v.map(obj(schema)) : []);
@@ -46,13 +47,13 @@ const SCHEMA = {
     brew: obj({ mashTemp: OPT, steps: v => (Array.isArray(v) ? v.map(OPT) : []), preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
   sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM }) },
-  kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE },
+  kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE, history: LIST({ date: DATE, status: ONE(KEG_STATES), batchId: ID, customerId: ID }) },
   equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM },
-  customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR },
+  customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR, lat: GEO(90), lng: GEO(180) },
   vendors: { id: ID, name: STR, gstin: STR, phone: STR, supplies: STR },
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
   packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, kegIds: IDS },
-  dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM }) },
+  dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM, batchId: ID }) },
   tasks: { id: ID, title: STR, type: ONE(TASK_TYPES), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
   wastage: { id: ID, date: DATE, kind: ONE(['Beer', 'Material']), ref: ID, qty: NUM, reason: STR },
@@ -63,7 +64,7 @@ const SCHEMA = {
 };
 export const BREWHOUSE_TYPES = ['2 vessel', '3 vessel', '4 vessel'];
 const BREWHOUSE = obj({ type: ONE(BREWHOUSE_TYPES), lengthHL: NUM, mashTun: NUM, lauterTun: NUM, kettle: NUM, whirlpool: BOOL, boilRate: NUM, boilMins: NUM, deadSpace: NUM, cycleHrs: NUM, hlt: NUM, hltTemp: NUM, clt: NUM, cltTemp: NUM, hx: STR });
-const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, lastBackup: DATE };
+const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, lastBackup: DATE };
 const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM };
 
 export function clean(d) {
@@ -114,8 +115,19 @@ export const isDemo = () => db.settings.gstin === demo().settings.gstin;
 // An empty brewery keeps only process defaults. Tax rates, prices and the kit are blanked so no demo figure survives.
 export function startEmpty() {
   const s = demo().settings;
-  replace({ settings: { ...s, name: 'My Brewery', gstin: '', address: '', state: '', prefix: '', exciseRate: 0, vat: 0, tradeRateL: 0, lastBackup: '', brewhouse: { ...s.brewhouse, lengthHL: 0, mashTun: 0, lauterTun: 0, kettle: 0, hlt: 0, clt: 0 } } });
+  replace({ settings: { ...s, name: 'My Brewery', gstin: '', address: '', state: '', prefix: '', exciseRate: 0, vat: 0, tradeRateL: 0, kegValue: 0, lastBackup: '', brewhouse: { ...s.brewhouse, lengthHL: 0, mashTun: 0, lauterTun: 0, kettle: 0, hlt: 0, clt: 0 } } });
   commit();
+}
+// Every keg move goes through here so each keg keeps its own trail: filled with what, sent where, back when.
+// ponytail: last 100 moves per keg, enough for years of turns; archive older moves if anyone needs more.
+export function moveKeg(k, status, date = today(), changes = {}) {
+  Object.assign(k, changes, { status, since: date });
+  k.history = [...k.history, { date, status, batchId: k.batchId, customerId: k.customerId }].slice(-100);
+}
+// Deleting a dispatch or packaging run takes back the move it made rather than logging a new one.
+export function undoKeg(k, status, changes = {}) {
+  k.history = k.history.slice(0, -1);
+  Object.assign(k, changes, { status, since: k.history.at(-1)?.date || k.since });
 }
 export function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { toast('This browser blocked saving. Export a backup from Settings.'); }

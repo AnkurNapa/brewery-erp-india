@@ -27,7 +27,7 @@ export const ROLES = [
   ]],
   ['driver', 'Driver', [
     ['Delivering', [['Scan the keg QR tag with the phone camera and tap Dispatch.', 'equipment'], ['Choose the customer. A trade invoice is raised with the dispatch.', 'dispatch']]],
-    ['Collecting', [['Dispatch, Kegs to collect, lists every keg out with each customer.', 'dispatch'], ['Scan the empty keg at the bar and tap Picked up.', 'equipment']]],
+    ['Collecting', [['Dispatch, Kegs to collect, lists every keg out with each customer.', 'dispatch'], ['Scan the empty keg at the bar and tap Picked up.', 'equipment'], ['Collecting a whole load? Equipment, Scan kegs. Scan or type each code, then tap Picked up once.', 'kegscan'], ['The keg map shows every customer with kegs out. Red pins have a keg out over 30 days.', 'equipment']]],
   ]],
   ['accounts', 'Accounts', [
     ['Month end', [['Excise and tax: the excise register and monthly VAT and GST, with CSV downloads.', 'tax'], ['Taproom sales: Sales CSV, trade and taproom invoices together.', 'sales'], ['Utilities and wastage: enter the month\'s bills so cost per litre is right.', 'records'], ['Stock take: Adjustments CSV for the auditor.', 'stocktake'], ['Settings: Export backup at least weekly.', 'settings']]],
