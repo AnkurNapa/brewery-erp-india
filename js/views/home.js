@@ -6,7 +6,7 @@ import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openF
 const setupCard = () => {
   const s = db.settings, steps = [
     ['Brewery details and tax rates', 'Name, GSTIN, state excise and VAT', !!(s.gstin && s.name && s.name !== 'My Brewery'), '<a class="ghost" href="#settings">Open Settings</a>'],
-    ['Tanks', 'Fermenters and brite tanks with capacity', db.tanks.length > 0, btn('Add tank', 'newTank', '', 'ghost')],
+    ['Brewery setup', 'Brew length, brewhouse, HLT, CLT and tanks. Templates for 5, 10 and 20 HL', !!(s.brewhouse?.lengthHL && db.tanks.length), '<a class="ghost" href="#setup">Set up brewery</a>'],
     ['Raw materials', 'Malt, hops, yeast and chemicals with opening stock', db.materials.length > 0, btn('Add material', 'newMat', '', 'ghost')],
     ['First recipe', 'The engine works out gravity, bitterness and cost', db.recipes.length > 0, btn('New recipe', 'newRec', '', 'ghost')],
   ];
@@ -84,13 +84,21 @@ export const actions = {
   delTask(id) { if (confirm('Delete this task?')) { db.tasks = db.tasks.filter(x => x.id !== id); commit(); } },
   planBrew(rid) {
     const r = rec(rid), s = beerStock().find(x => x.r.id === rid);
-    const date = s?.brewBy && s.brewBy > today() ? s.brewBy : addDays(today(), 1);
+    let date = s?.brewBy && s.brewBy > today() ? s.brewBy : addDays(today(), 1);
     const rank = t => (tankFit(t).ok ? 0 : t.hygiene === 'Sanitised' ? 1 : t.hygiene === 'Cleaned' ? 2 : 3);
     const free = db.tanks.filter(t => /ferment|uni/i.test(t.type) && !db.batches.some(b => b.tankId === t.id && !['Sold out', 'Ready'].includes(b.status))).sort((a, b) => rank(a) - rank(b))[0];
+    // Brews per day come from the brewhouse cycle. A fermenter that holds two brew lengths gets a double brew.
+    const L = (db.settings.brewhouse.lengthHL || 0) * 100, perDay = Math.max(1, Math.floor(16 / (db.settings.brewhouse.cycleHrs || 8)));
+    const brewsOn = d => db.batches.filter(b => b.status === 'Planned' && b.date === d).reduce((a, b) => a + Math.max(1, L ? Math.round(b.volume / L) : 1), 0);
+    const double = L && free && free.capacity >= 2 * L * 1.1;
+    let day = date;
+    while (brewsOn(day) + (double ? 2 : 1) > perDay) day = addDays(day, 1);
+    date = day;
+    const volume = double ? r.size * 2 : r.size;
     const code = next('batch', 'B', 3);
-    db.batches.push({ id: uid(), code, recipeId: r.id, recipeVersion: r.version, date, status: 'Planned', volume: r.size, og: 0, fg: 0, tankId: free?.id || '', notes: '', readyDate: '', dutyRate: 0, issued: false, issues: [], log: [], brew: { mashTemp: '', preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' } });
-    db.tasks.push({ id: uid(), title: `Brew ${r.name} (${code})`, type: 'Brewing', date, assignee: '', status: 'Open' });
-    toast(`${code} planned for ${date}${free ? ` in ${free.name} (${free.hygiene.toLowerCase()}${free.hygiene === 'Dirty' ? ', CIP needed' : ''})` : ''}. Ingredients are now reserved.`);
+    db.batches.push({ id: uid(), code, recipeId: r.id, recipeVersion: r.version, date, status: 'Planned', volume, og: 0, fg: 0, tankId: free?.id || '', notes: '', readyDate: '', dutyRate: 0, issued: false, issues: [], log: [], brew: { mashTemp: '', preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' } });
+    db.tasks.push({ id: uid(), title: `${double ? 'Double brew' : 'Brew'} ${r.name} (${code})`, type: 'Brewing', date, assignee: '', status: 'Open' });
+    toast(`${code}${double ? ' (double brew)' : ''} planned for ${date}${free ? ` in ${free.name} (${free.hygiene.toLowerCase()}${free.hygiene === 'Dirty' ? ', CIP needed' : ''})` : ''}. Ingredients are now reserved.`);
     commit();
   },
 };

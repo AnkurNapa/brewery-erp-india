@@ -197,8 +197,29 @@ table.compare td:first-child { color: var(--muted); }
 table.compare tr.diff td { background: var(--blue-t); } table.compare tr.diff td:first-child { color: var(--ink); font-weight: 600; }
 table.compare tr.sec td { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: none; padding-top: 18px; }
 .dot-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
-.credit { margin: 24px 12px 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.7; color: var(--muted); }
-.contact { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+
+.maker { margin: 24px 4px 0; padding: 14px 8px 0; border-top: 1px solid var(--line); }
+.maker-kicker { margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#side a.maker-card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); min-height: 0; justify-content: flex-start; }
+#side a.maker-card:hover { background: var(--card); transform: translateY(-1px); }
+.avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 700; font-size: 15px; letter-spacing: .02em; color: #fff; background: linear-gradient(135deg, #e0a14a, #007aff); box-shadow: 0 0 0 2px var(--card), 0 0 0 3px rgba(224, 161, 74, .5); }
+.avatar.big { width: 72px; height: 72px; font-size: 26px; }
+.maker-id b { display: block; color: var(--ink); font-size: 15px; line-height: 1.2; }
+.maker-id small { color: var(--muted); font-size: 12px; }
+.maker-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+#side a.maker-btn { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 8px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--fill); color: var(--blue); }
+#side a.maker-btn.primary-soft { background: var(--blue); color: #fff; }
+#side a.maker-btn:hover { filter: brightness(1.05); }
+.in { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; background: #0a66c2; color: #fff; font: 700 10px/1 var(--font); }
+.maker-note { margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
+.maker-hero { display: flex; gap: 20px; align-items: flex-start; }
+.maker-hero h2 { font-size: 24px; margin: 0; }
+.maker-hero .sub { margin: 4px 0 0; }
+.maker-q { margin: 12px 0 4px; font-weight: 600; color: var(--ink); }
+.templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.template { text-align: left; border: 1px solid var(--line); background: var(--card2); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px; transition: border-color .15s, transform .15s; }
+.template:hover { border-color: var(--blue); transform: translateY(-1px); }
+.template b { color: var(--ink); font-size: 15px; } .template small { color: var(--muted); font-size: 13px; }
 
 /* ---------- calendar ---------- */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }

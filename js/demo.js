@@ -120,7 +120,7 @@ export function demo() {
   });
 
   return {
-    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, lastBackup: daysAgo(2) },
+    settings: { brewhouse: { type: '2 vessel', lengthHL: 5, mashTun: 750, lauterTun: 0, kettle: 650, whirlpool: true, boilRate: 8, boilMins: 60, deadSpace: 20, cycleHrs: 7, hlt: 1000, hltTemp: 80, clt: 1000, cltTemp: 4, hx: 'Two-stage plate' }, name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, lastBackup: daysAgo(2) },
     seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13, count: 2 },
     materials, recipes, products, tanks, batches, sales, kegs, customers, vendors, packs, dispatches,
     equipment: [

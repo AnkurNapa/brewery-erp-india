@@ -45,6 +45,13 @@ export function recipeCalc(r) {
   for (const i of lines.filter(i => ['Boil', 'Whirlpool'].includes(i.use) && i.m.type === 'Hops' && !i.m.alpha)) warn.push(`${i.m.name} has no alpha acid set, so it adds no bitterness.`);
   if (!at('Pitch').length) warn.push('No yeast: FG assumes 75% attenuation.');
   if (grain && mashWater - grain * absorb > pre) warn.push('Mash water alone is more than the pre-boil volume. Use a thicker mash or a bigger batch.');
+  // Does this brew fit the kit in Brewery setup?
+  const bh = st.brewhouse || {}, mashVol = mashWater + grain * 0.67, cooling = post * 1.2;
+  if (bh.mashTun && mashVol > bh.mashTun) warn.push(`Mash is ${Math.round(mashVol)} L (water plus grain), over the ${bh.mashTun} L mash tun.`);
+  if (bh.kettle && pre > bh.kettle) warn.push(`Pre-boil volume ${Math.round(pre)} L is over the ${bh.kettle} L kettle.`);
+  if (bh.hlt && mashWater + sparge > bh.hlt) warn.push(`Strike and sparge need ${Math.round(mashWater + sparge)} L of hot liquor, more than the ${bh.hlt} L HLT holds. Plan a refill.`);
+  if (bh.clt && cooling > bh.clt) warn.push(`Cooling ${Math.round(post)} L of wort needs about ${Math.round(cooling)} L of cold liquor, more than the ${bh.clt} L CLT.`);
+  if (bh.lengthHL && size > bh.lengthHL * 100 * 1.05) warn.push(`Batch of ${size} L is bigger than the ${bh.lengthHL} HL brew length. Split it into brews.`);
   const steps = [
     { step: 'Mash', litres: mashWater, extract: potential, note: grain ? `${grain.toFixed(1)} kg grain at ${(r.liquor || 2.8).toFixed(1)} L/kg` : '' },
     { step: 'Kettle, pre-boil', litres: pre, extract: kettleExt, plato: pPre, note: `Sparge ${sparge.toFixed(0)} L` },

@@ -61,7 +61,9 @@ const SCHEMA = {
   counts: { id: ID, no: STR, date: DATE, status: ONE(['Open', 'Posted']), lines: LIST({ ref: REF, label: STR, unit: STR, system: NUM, counted: OPT, cost: NUM, reason: STR }) },
   adjustments: { id: ID, date: DATE, countId: ID, ref: REF, label: STR, delta: NUM, value: NUM, reason: STR },
 };
-const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, lastBackup: DATE };
+export const BREWHOUSE_TYPES = ['2 vessel', '3 vessel', '4 vessel'];
+const BREWHOUSE = obj({ type: ONE(BREWHOUSE_TYPES), lengthHL: NUM, mashTun: NUM, lauterTun: NUM, kettle: NUM, whirlpool: BOOL, boilRate: NUM, boilMins: NUM, deadSpace: NUM, cycleHrs: NUM, hlt: NUM, hltTemp: NUM, clt: NUM, cltTemp: NUM, hx: STR });
+const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, lastBackup: DATE };
 const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM };
 
 export function clean(d) {

@@ -10,8 +10,9 @@ import * as records from './views/records.js';
 import * as control from './views/control.js';
 import * as help from './views/help.js';
 import * as recipes from './views/recipes.js';
+import * as setup from './views/setup.js';
 
-const MODULES = [home, brew, recipes, stores, sales, control, records, help];
+const MODULES = [home, brew, recipes, stores, sales, control, records, help, setup];
 const VIEWS = Object.assign({}, ...MODULES.map(m => m.views));
 const ACTIONS = Object.assign({}, ...MODULES.map(m => m.actions));
 const SEGS = Object.assign({}, ...MODULES.map(m => m.segs || {}));
@@ -22,7 +23,7 @@ const NAV = [
   ['Stores', [['materials', 'Raw materials'], ['purchasing', 'Purchasing and MRP'], ['equipment', 'Equipment and kegs']]],
   ['Quality and control', [['cip', 'CIP'], ['losses', 'Beer losses'], ['stocktake', 'Stock take']]],
   ['Sales', [['sales', 'Taproom sales'], ['dispatch', 'Dispatch'], ['menu', 'Menu'], ['partners', 'Customers and vendors']]],
-  ['Records', [['records', 'Utilities and wastage'], ['reports', 'Reports'], ['tax', 'Excise and tax'], ['settings', 'Settings']]],
+  ['Records', [['records', 'Utilities and wastage'], ['reports', 'Reports'], ['tax', 'Excise and tax'], ['setup', 'Brewery setup'], ['settings', 'Settings']]],
 ];
 const TABS = [['dash', 'Home'], ['tanks', 'Tanks'], ['batches', 'Batches'], ['sales', 'Sales']];
 // Simple line glyphs for the phone tab bar, drawn inline so there is no icon font to load.
@@ -105,6 +106,7 @@ $('q').addEventListener('input', e => {
 });
 $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = $('results').querySelector('a'); if (a) location.hash = a.getAttribute('href').slice(1); } if (e.key === 'Escape') { e.target.value = ''; $('results').innerHTML = ''; } });
 $('main').addEventListener('submit', e => {
+  if (e.target.id === 'setupForm') { e.preventDefault(); return setup.saveSetup(e.target); }
   if (e.target.id !== 'settingsForm') return;
   e.preventDefault();
   records.saveSettings(e.target);

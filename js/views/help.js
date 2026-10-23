@@ -39,8 +39,9 @@ export const views = {
   help() {
     const [, title, sections] = ROLES.find(r => r[0] === role);
     return head('Help', 'How each person runs their day in Brewhouse. Every step opens the screen it names.')
-      + panel('', `<div class="contact"><div><b>Facing difficulty? Let's schedule a call.</b><small class="sub">Brewhouse ERP is made by Ankur Napa.</small></div>
-        <div class="card-acts"><a class="primary" href="mailto:napaankur@gmail.com?subject=Brewhouse%20ERP%3A%20let%27s%20schedule%20a%20call">Email to schedule a call</a><a class="ghost" href="https://www.linkedin.com/in/ankur-napa" target="_blank" rel="noopener">LinkedIn</a></div></div>`)
+      + `<section class="panel maker-hero"><span class="avatar big" aria-hidden="true">AN</span><div class="grow"><p class="maker-kicker">Made by</p><h2>Ankur Napa</h2><p class="sub">Brewer and data builder. I built Brewhouse ERP for Indian microbreweries and brewpubs.</p>
+        <p class="maker-q">Facing difficulty? Let's schedule a call.</p>
+        <div class="card-acts"><a class="primary" href="mailto:napaankur@gmail.com?subject=Brewhouse%20ERP%3A%20let%27s%20schedule%20a%20call">Book a call</a><a class="ghost" href="https://www.linkedin.com/in/ankur-napa" target="_blank" rel="noopener"><span class="in" aria-hidden="true">in</span>LinkedIn profile</a><a class="link" href="mailto:napaankur@gmail.com">napaankur@gmail.com</a></div></div></section>`
       + seg('helpRole', ROLES.map(([k, t]) => [k, t]), role)
       + sections.map(([name, steps]) => panel(`${esc(title)}: ${esc(name)}`, steps.map(([text, href], i) =>
         `<a class="help-step" href="#${href}"><span class="num">${i + 1}</span><span>${esc(text)}</span></a>`).join(''))).join('');

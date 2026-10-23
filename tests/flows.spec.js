@@ -26,8 +26,9 @@ test('1 first run: an empty brewery gets a setup card', async ({ page }) => {
   await page.getByRole('button', { name: 'Start empty' }).click();
   await go(page, 'dash');
   await expect(page.getByText('Get started')).toBeVisible();
-  await page.getByRole('button', { name: 'Add tank' }).click();
-  await sheet(page, { name: 'FV-1', capacity: 600 });
+  await page.getByRole('link', { name: 'Set up brewery' }).click();
+  await page.locator('[data-act="applyTemplate"][data-id="brewpub10"]').click();
+  await go(page, 'dash');
   await expect(page.locator('.setup li.done')).toHaveCount(1);
 });
 
@@ -347,7 +348,33 @@ test('29 compare recipes: pick two, see the differences', async ({ page }) => {
 
 test('30 credit: maker, LinkedIn and a way to book a call', async ({ page }) => {
   await fresh(page, 'help');
-  await expect(page.locator('.credit a[href*="linkedin.com/in/ankur-napa"]')).toHaveText('Ankur Napa');
-  await expect(page.locator('.credit a[href^="mailto:napaankur@gmail.com?subject"]')).toContainText('schedule a call');
-  await expect(page.locator('main')).toContainText("Facing difficulty? Let's schedule a call.");
+  await expect(page.locator('.maker-card')).toHaveAttribute('href', 'https://www.linkedin.com/in/ankur-napa');
+  await expect(page.locator('.maker-card')).toContainText('Ankur Napa');
+  await expect(page.locator('.maker a[href^="mailto:napaankur@gmail.com?subject"]')).toHaveText('Book a call');
+  await expect(page.locator('main .maker-hero')).toContainText("Facing difficulty? Let's schedule a call.");
+});
+
+test('31 brewery setup: template builds the cellar, recipes check the kit', async ({ page }) => {
+  await fresh(page, 'setup');
+  await page.locator('[data-act="applyTemplate"][data-id="prod20"]').click();
+  const r = await db(page, d => ({ len: d.settings.brewhouse.lengthHL, fv: d.tanks.filter(t => t.type === 'Fermenter').length, hlt: d.equipment.some(e => e.name === 'Hot liquor tank') }));
+  expect(r).toEqual({ len: 20, fv: 6, hlt: true });
+  const warn = await run(page, async () => { const s = await import('/js/store.js'), c = await import('/js/calc.js'); s.db.settings.brewhouse.kettle = 400; s.db.settings.brewhouse.hlt = 300; return c.recipeCalc(s.db.recipes[0]).warn.join(' | '); });
+  expect(warn).toContain('over the 400 L kettle');
+  expect(warn).toContain('more than the 300 L HLT');
+  await page.locator('#setupForm [name="lengthHL"]').fill('7');
+  await page.locator('#setupForm button.primary').click();
+  expect(await db(page, d => d.settings.brewhouse.lengthHL)).toBe(7);
+});
+
+test('32 double brew: a fermenter that holds two brews gets a double brew', async ({ page }) => {
+  await fresh(page, 'calendar');
+  const r = await run(page, async () => {
+    const s = await import('/js/store.js'), h = await import('/js/views/home.js');
+    s.db.tanks.find(t => t.name === 'FV-4').capacity = 1200;
+    h.actions.planBrew(s.db.recipes[0].id);
+    const b = s.db.batches.at(-1);
+    return { volume: b.volume, task: s.db.tasks.at(-1).title.startsWith('Double brew') };
+  });
+  expect(r).toEqual({ volume: 1000, task: true });
 });

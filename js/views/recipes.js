@@ -19,6 +19,13 @@ const REC_FIELDS = [
 ];
 const NOTE_FIELD = { k: 'note', label: 'What changed in this version', wide: 1, req: 1 };
 const REC_DEFAULTS = { size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3, note: 'First version' };
+// New recipes start from the brewhouse in Brewery setup.
+const kitDefaults = () => {
+  const bh = db.settings.brewhouse || {};
+  if (!bh.lengthHL) return REC_DEFAULTS;
+  const size = bh.lengthHL * 100, dead = bh.deadSpace || 20;
+  return { ...REC_DEFAULTS, size, trubLoss: dead, fermLoss: Math.round(size * 0.03), boilLoss: Math.round((size + dead) * (bh.boilRate || 8) / 100 * (bh.boilMins || 60) / 60) };
+};
 // Which uses make sense for each kind of ingredient. Minutes only matter for hops in the boil or whirlpool.
 const USE_BY_TYPE = { Malt: ['Mash', 'Boil'], Hops: ['Boil', 'Whirlpool', 'Dry hop'], Yeast: ['Pitch'], Adjunct: ['Mash', 'Boil', 'Fermenter'], Other: ['Mash', 'Boil', 'Fermenter'] };
 const usesFor = id => USE_BY_TYPE[mat(id)?.type] || ['Mash'];
@@ -170,7 +177,7 @@ const MASH_LINES = rows => ({ label: 'Step', rows: rows.map(m => ({ id: m.step, 
 
 export const actions = {
   newRec() {
-    openForm({ title: 'New recipe', fields: REC_FIELDS, vals: REC_DEFAULTS, lines: recLines([]), live: recPreview([{ step: 'Saccharification', temp: 66, mins: 60 }, { step: 'Mash out', temp: 76, mins: 10 }]),
+    openForm({ title: 'New recipe', fields: REC_FIELDS, vals: kitDefaults(), lines: recLines([]), live: recPreview([{ step: 'Saccharification', temp: 66, mins: 60 }, { step: 'Mash out', temp: 76, mins: 10 }]),
       note: 'A single infusion mash profile is added. Change it from the recipe page.',
       onSave: (v, items) => {
         if (!items.length) { toast('Add at least one ingredient'); return false; }
