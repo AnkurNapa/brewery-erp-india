@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const [out, mode, only] = process.argv.slice(2);
-const reel = mode === 'reel'; // full-bleed 1080x1920, the Craft Beer School Reel geometry
+const reel = mode === 'reel' || mode === 'module'; // full-bleed 1080x1920, the Craft Beer School Reel geometry
 const phone = mode === 'phone' || reel;
 // Chrome's screencast streams frames at device pixels, so these give a true 1920x1080 and 1170x2532.
 const VIEW = reel ? { viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5, isMobile: true, hasTouch: true, size: { width: 1080, height: 1920 } }
@@ -111,12 +111,56 @@ const PHONE = {
   p08: async (p, h) => { await h.more('Help'); await wait(1200); },
 };
 
-const scenes = phone ? PHONE : DESKTOP;
+// Module Reels: one short Reel per module, scenes named <module>-<n>.
+const id = async (p, code) => p.evaluate(async c => (await import('/js/store.js')).db.batches.find(b => b.code === c).id, code);
+const save = h => h.tap('#modal .sheet-head button.strong');
+const MODULE = {
+  'home-1': async (p, h) => { await wait(500); await h.scroll(350); },
+  'home-2': async (p, h) => { await h.scroll(900); await wait(400); },
+  'home-3': async (p, h) => { await h.scroll(800); await wait(300); await h.tap('.list li a'); await wait(600); },
+  'schedule-1': async (p, h) => { await h.go('calendar'); await wait(400); await h.scroll(250); },
+  'schedule-2': async (p, h) => { await h.go('calendar'); await h.scroll(1150); },
+  'schedule-3': async (p, h) => { await h.go('calendar'); await h.scroll(1150); await wait(300); await h.tap('[data-act="planBrew"]'); await wait(600); },
+  'tanks-1': async (p, h) => { await h.go('tanks'); await wait(400); await h.scroll(350); },
+  'tanks-2': async (p, h) => { await h.go('tanks'); await h.tap('[data-act="logReading"]'); await wait(500); await h.type('#modal [name="gravity"]', '1.020'); await save(h); await wait(500); },
+  'tanks-3': async (p, h) => { await h.go('tanks'); await h.tap('[data-act="transfer"]'); await wait(900); await save(h); await wait(600); },
+  'recipes-1': async (p, h) => { await h.go('recipes'); await wait(400); await h.scroll(550); },
+  'recipes-2': async (p, h) => { await h.go('recipes'); await h.tap('[data-act="editRec"]'); await wait(600); await h.type('#modal [name="l_qty"]', '140'); await wait(300); await p.evaluate(() => document.querySelector('#modal .preview').scrollIntoView({ behavior: 'smooth' })); await wait(900); },
+  'recipes-3': async (p, h) => { await h.go('recipe/' + await p.evaluate(async () => (await import('/js/store.js')).db.recipes[0].id)); await wait(500); await h.scroll(1700); },
+  'recipes-4': async (p, h) => { await h.go('compare/' + await p.evaluate(async () => { const r = (await import('/js/store.js')).db.recipes; return `${r[0].id}.${r[0].version}~${r[2].id}.${r[2].version}`; })); await wait(500); await h.scroll(350); },
+  'batches-1': async (p, h) => { await h.go('batches'); await wait(500); await h.scroll(200); },
+  'batches-2': async (p, h) => { await h.go('blr/' + await id(p, 'B-001')); await wait(500); await h.scroll(950); },
+  'batches-3': async (p, h) => { await h.go('batches'); await wait(300); await h.tap(p.locator('tr', { hasText: 'B-003' }).locator('[data-act="brewLog"]')); await wait(1400); },
+  'packaging-1': async (p, h) => { await h.go('packaging'); await wait(600); await h.scroll(150); },
+  'packaging-2': async (p, h) => { await h.go('packaging'); await h.tap('[data-act="newPack"]'); await wait(800); await save(h); await wait(700); },
+  'stores-1': async (p, h) => { await h.go('materials'); await wait(500); await h.scroll(300); },
+  'stores-2': async (p, h) => { await h.go('materials'); await wait(300); await h.tap(p.locator('[data-act="lots"]', { hasText: 'QC' })); await wait(1200); },
+  'stores-3': async (p, h) => { await h.go('materials'); await h.tap(p.locator('[data-act="lots"]', { hasText: 'QC' })); await wait(700); await h.tap('#modal [data-qc="Approved"]'); await wait(800); },
+  'purchasing-1': async (p, h) => { await h.go('purchasing'); await wait(500); await h.scroll(300); },
+  'purchasing-2': async (p, h) => { await h.go('purchasing'); await wait(300); await h.tap('[data-act="mrpPos"]'); await wait(500); await h.scroll(1000); },
+  'equipment-1': async (p, h) => { await h.go('equipment'); await wait(500); await h.scroll(300); },
+  'equipment-2': async (p, h) => { await h.go('equipment'); await wait(300); await h.tap('[data-act="showQr"]'); await wait(1500); },
+  'equipment-3': async (p, h) => { await h.go('scan/K-001'); await wait(700); await h.tap('[data-act="kegPickup"]'); await wait(700); },
+  'cip-1': async (p, h) => { await h.go('cip'); await wait(500); await h.scroll(280); },
+  'cip-2': async (p, h) => { await h.go('cip'); await wait(300); await h.tap(p.locator('tr', { hasText: 'FV-3' }).locator('[data-act="logCip"]')); await wait(900); await save(h); await wait(700); },
+  'losses-1': async (p, h) => { await h.go('losses'); await wait(500); await h.scroll(320); },
+  'losses-2': async (p, h) => { await h.go('losses'); await wait(300); await h.tap('[data-seg="lossWindow"][data-v="90"]'); await wait(300); await h.scroll(1300); },
+  'stocktake-1': async (p, h) => { await h.go('stocktake'); await wait(500); await h.tap('[data-act="newCount"]'); await wait(700); },
+  'stocktake-2': async (p, h) => { await h.go('stocktake'); await h.tap('[data-act="newCount"]'); await wait(500); await h.type('.count-in', '615'); await h.tap('[data-seg="countMode"][data-v="review"]'); await wait(600); },
+  'stocktake-3': async (p, h) => { await h.go('stocktake'); await h.tap('[data-act="newCount"]'); await wait(300); await h.tap('[data-seg="countMode"][data-v="review"]'); await wait(300); await p.evaluate(async () => { const s = document.scrollingElement, end = s.scrollHeight; for (let i = 0; i < 50; i++) { s.scrollTop += (end - s.scrollTop) / 12; await new Promise(r => setTimeout(r, 20)); } }); await wait(500); },
+  'sales-1': async (p, h) => { await h.go('sales'); await wait(300); await h.tap('[data-act="newInv"]'); await wait(1000); await save(h); await wait(600); },
+  'sales-2': async (p, h) => { await h.go('dispatch'); await wait(500); await h.scroll(250); },
+  'tax-1': async (p, h) => { await h.go('tax'); await wait(500); await h.scroll(450); },
+  'tax-2': async (p, h) => { await h.go('reports'); await wait(400); for (const t of ['production', 'process', 'quality']) { await h.tap(`[data-seg="reportTab"][data-v="${t}"]`); await wait(700); } },
+  'setup-1': async (p, h) => { await h.go('setup'); await wait(500); await h.scroll(200); },
+  'setup-2': async (p, h) => { await h.go('setup'); await wait(300); await h.tap('[data-act="applyTemplate"][data-id="brewpub10"]'); await wait(600); await h.scroll(1600); },
+};
+const scenes = mode === 'module' ? MODULE : phone ? PHONE : DESKTOP;
 const durations = JSON.parse(process.env.SCENE_SECONDS || '{}');
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 for (const [name, play] of Object.entries(scenes)) {
-  if (only && name !== only) continue;
+  if (only && !name.startsWith(only)) continue;
   const tmp = `${out}/tmp-${name}`;
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
