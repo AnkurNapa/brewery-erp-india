@@ -18,6 +18,20 @@ export const sg = n => (+n || 0).toFixed(3);
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const fmtDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
 
+// CSV for spreadsheets. Text cells that start like a formula are prefixed so Excel shows them as text.
+export function downloadCsv(name, header, rows) {
+  const cell = v => {
+    let t = String(v ?? '');
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + [header, ...rows].map(r => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv' }));
+  a.download = `${name}-${today()}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 export function toast(msg) {
   const t = $('toast');
   t.textContent = msg;

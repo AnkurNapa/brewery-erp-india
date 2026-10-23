@@ -1,8 +1,8 @@
 // Raw materials, purchasing and MRP, equipment register with QR, keg scan page.
-import { db, next, commit, KEG_STATES } from '../store.js';
+import { db, next, commit, consume, addLot, KEG_STATES } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, addDays, daysBetween } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, qr, seg } from '../ui.js';
-import { mat, rec, vendor, cust, keg, tank, reserved, available, mrp, onOrder } from '../calc.js';
+import { mat, rec, vendor, cust, keg, tank, reserved, mrp, approvedQty, pendingLots, expiryOf } from '../calc.js';
 
 const TYPES = ['Malt', 'Hops', 'Yeast', 'Adjunct', 'Chemical', 'Packaging', 'Gas', 'Other'];
 const vendorOpts = () => [{ v: '', t: 'None' }, ...db.vendors.map(v => ({ v: v.id, t: v.name }))];
@@ -14,11 +14,11 @@ export const views = {
     const t = today(), list = db.materials.filter(m => matFilter === 'All' || m.type === matFilter);
     const value = sum(db.materials, m => m.qty * m.cost);
     const rows = list.map(m => {
-      const res = reserved(m.id), av = m.qty - res, exp = m.expiry ? daysBetween(t, m.expiry) : null;
+      const res = reserved(m.id), av = approvedQty(m) - res, ex = expiryOf(m), exp = ex ? daysBetween(t, ex) : null, pend = pendingLots(m);
       return `<tr><td><b>${esc(m.name)}</b><small class="sub">${esc(m.type)}${m.vendorId ? ' · ' + esc(vendor(m.vendorId)?.name) : ''}</small></td>
         <td class="n">${num(m.qty, 2)} ${esc(m.unit)}</td><td class="n">${res ? num(res, 2) : ''}</td><td class="n ${av <= m.reorder ? 'bad' : ''}">${num(av, 2)}</td><td class="n">${num(m.reorder, 2)}</td>
-        <td class="n">${inr(m.cost)}</td><td>${m.expiry ? `<span class="${exp <= 30 ? 'bad' : ''}">${fmtDate(m.expiry)}</span>` : ''}</td><td>${pill(m.qc, statusCls(m.qc))}</td>
-        <td class="acts">${m.qc !== 'Approved' ? link('Approve', 'qcApprove', m.id) : ''}${link('Receive', 'receive', m.id)}${link('Use / waste', 'wasteMat', m.id)}${link('Edit', 'editMat', m.id)}${link('Delete', 'delMat', m.id, 'del')}</td></tr>`;
+        <td class="n">${inr(m.cost)}</td><td>${ex ? `<span class="${exp <= 30 ? 'bad' : ''}">${fmtDate(ex)}</span>` : ''}</td><td>${pend.length ? pill(`${pend.length} pending`, 'orange') : pill('Approved', 'ok')}</td>
+        <td class="acts">${link(pend.length ? 'QC' : 'Lots', 'lots', m.id)}${link('Receive', 'receive', m.id)}${link('Use / waste', 'wasteMat', m.id)}${link('Edit', 'editMat', m.id)}${link('Delete', 'delMat', m.id, 'del')}</td></tr>`;
     });
     return head('Raw materials', `Stores value ${inr0(value)}. Available = on hand minus what planned batches have reserved.`, btn('Add material', 'newMat'))
       + seg('matFilter', ['All', ...TYPES].filter(x => x === 'All' || db.materials.some(m => m.type === x)).map(x => [x, x]), matFilter)
@@ -70,13 +70,13 @@ export const views = {
 };
 
 // ---------- actions ----------
-const MAT_FIELDS = () => [
+const MAT_FIELDS = (edit = false) => [
   { k: 'name', label: 'Name', req: 1 }, { k: 'type', label: 'Type', type: 'select', options: TYPES.map(t => ({ v: t, t })) },
-  { k: 'unit', label: 'Unit (kg, pack, L)' }, { k: 'qty', label: 'On hand', type: 'number' }, { k: 'reorder', label: 'Reorder at (PAR)', type: 'number' },
-  { k: 'cost', label: 'Cost per unit (₹)', type: 'number' }, { k: 'vendorId', label: 'Vendor', type: 'select', options: vendorOpts() }, { k: 'expiry', label: 'Expiry', type: 'date' },
+  { k: 'unit', label: 'Unit (kg, pack, L)' }, { k: 'qty', label: edit ? 'On hand' : 'Opening stock', type: 'number', ro: edit }, { k: 'reorder', label: 'Reorder at (PAR)', type: 'number' },
+  { k: 'cost', label: 'Cost per unit (₹)', type: 'number' }, { k: 'vendorId', label: 'Vendor', type: 'select', options: vendorOpts() },
+  ...(edit ? [] : [{ k: 'expiry', label: 'Expiry of opening stock', type: 'date' }]),
   { k: 'extract', label: 'Malt extract (points/kg/L)', type: 'number' }, { k: 'ebc', label: 'Malt colour (EBC)', type: 'number' },
   { k: 'alpha', label: 'Hop alpha acid (%)', type: 'number' }, { k: 'atten', label: 'Yeast attenuation (%)', type: 'number' },
-  { k: 'qc', label: 'QC status', type: 'select', options: ['Approved', 'Pending', 'Rejected'].map(t => ({ v: t, t })) },
 ];
 const PO_LINES = rows => ({ label: 'Material', rows, opts: db.materials.map(m => ({ id: m.id, label: `${m.name} (${m.unit})` })), cols: [{ k: 'qty', label: 'Qty' }, { k: 'price', label: 'Rate ₹', def: id => mat(id)?.cost ?? 0 }] });
 const EQ_FIELDS = [
@@ -90,24 +90,36 @@ function poForm(vals, rows) {
 }
 
 export const actions = {
-  newMat() { openForm({ title: 'Add material', fields: MAT_FIELDS(), vals: { type: 'Malt', unit: 'kg', qc: 'Approved' }, onSave: v => { db.materials.push({ id: uid(), ...v }); } }); },
-  editMat(id) { const m = mat(id); openForm({ title: `Edit ${m.name}`, fields: MAT_FIELDS(), vals: m, onSave: v => { Object.assign(m, v); } }); },
+  newMat() { openForm({ title: 'Add material', fields: MAT_FIELDS(), vals: { type: 'Malt', unit: 'kg' }, onSave: v => { const m = { id: uid(), ...v, qty: 0, qc: 'Approved', lots: [] }; if (v.qty) addLot(m, { qty: v.qty, qc: 'Approved', expiry: v.expiry, date: today(), ref: 'Opening stock' }); db.materials.push(m); } }); },
+  editMat(id) { const m = mat(id); openForm({ title: `Edit ${m.name}`, fields: MAT_FIELDS(true), vals: m, note: 'Stock changes go through Receive, Use / waste or a stock take, so every movement is on record.', onSave: v => { const { qty, expiry, ...rest } = v; Object.assign(m, rest); } }); },
   delMat(id) {
     if (db.recipes.some(r => r.items.some(i => i.id === id))) return toast('A recipe uses this material, so it cannot be deleted');
     remove('materials', id, 'material');
   },
-  qcApprove(id) { mat(id).qc = 'Approved'; toast('QC approved'); commit(); },
+  lots(id) {
+    const m = mat(id), md = document.getElementById('modal');
+    const render = () => {
+      md.innerHTML = `<div class="sheet"><div class="grabber"></div><div class="sheet-head"><span></span><h2>${esc(m.name)} lots</h2><button class="link strong" data-close>Done</button></div><div class="sheet-body">
+        ${table(['Received', 'Ref', { t: 'Qty', n: 1 }, 'Expiry', 'QC', ''], m.lots.map(l => `<tr><td>${fmtDate(l.date) || 'Opening'}</td><td>${esc(l.ref)}</td><td class="n">${num(l.qty, 3)} ${esc(m.unit)}</td><td>${fmtDate(l.expiry)}</td>
+          <td>${pill(l.qc, statusCls(l.qc))}</td><td class="acts">${l.qc !== 'Approved' ? `<button class="link" data-lot="${l.id}" data-qc="Approved">Approve</button>` : ''}${l.qc !== 'Rejected' ? `<button class="link del" data-lot="${l.id}" data-qc="Rejected">Reject</button>` : ''}</td></tr>`))}
+        <p class="note">Only approved lots count as available. Issues use approved stock first, earliest expiry first. Rejected stock stays on record until it is written off with Use / waste.</p></div></div>`;
+      md.querySelector('[data-close]').onclick = () => md.close();
+      md.querySelectorAll('[data-lot]').forEach(b => { b.onclick = () => { m.lots.find(l => l.id === b.dataset.lot).qc = b.dataset.qc; commit(); render(); }; });
+    };
+    render();
+    md.showModal();
+  },
   receive(id) {
     const m = mat(id);
-    openForm({ title: `Receive ${m.name}`, vals: { qty: '', cost: m.cost, expiry: m.expiry },
+    openForm({ title: `Receive ${m.name}`, vals: { qty: '', cost: m.cost, expiry: '' },
       fields: [{ k: 'qty', label: `Quantity (${m.unit})`, type: 'number' }, { k: 'cost', label: 'Cost per unit (₹)', type: 'number' }, { k: 'expiry', label: 'Expiry', type: 'date' }],
-      onSave: v => { Object.assign(m, { qty: +(m.qty + v.qty).toFixed(3), cost: v.cost || m.cost, expiry: v.expiry || m.expiry, qc: 'Pending' }); toast(`${num(v.qty, 2)} ${m.unit} received, waiting for QC`); } });
+      onSave: v => { if (!v.qty) { toast('Enter the quantity received'); return false; } m.cost = v.cost || m.cost; addLot(m, { qty: v.qty, expiry: v.expiry, cost: m.cost, date: today(), ref: 'Direct receipt' }); toast(`${num(v.qty, 2)} ${m.unit} received, waiting for QC`); } });
   },
   wasteMat(id) {
     const m = mat(id);
     openForm({ title: `Use or waste ${m.name}`, vals: { date: today(), reason: 'Wastage' },
       fields: [{ k: 'qty', label: `Quantity (${m.unit})`, type: 'number', req: 1 }, { k: 'date', label: 'Date', type: 'date' }, { k: 'reason', label: 'Reason', list: ['Wastage', 'Spillage', 'Expired', 'Lab sample', 'Cleaning'] }],
-      onSave: v => { m.qty = +(m.qty - v.qty).toFixed(3); db.wastage.push({ id: uid(), date: v.date, kind: 'Material', ref: m.id, qty: v.qty, reason: v.reason }); } });
+      onSave: v => { consume(m, v.qty); db.wastage.push({ id: uid(), date: v.date, kind: 'Material', ref: m.id, qty: v.qty, reason: v.reason }); } });
   },
 
   newPo() { poForm({ vendorId: db.vendors[0]?.id || '', date: today() }, []); },
@@ -120,7 +132,7 @@ export const actions = {
   },
   receivePo(id) {
     const p = db.pos.find(x => x.id === id);
-    for (const l of p.lines) { const m = mat(l.id); if (m) Object.assign(m, { qty: +(m.qty + l.qty).toFixed(3), cost: l.price || m.cost, qc: 'Pending' }); }
+    for (const l of p.lines) { const m = mat(l.id); if (m) { m.cost = l.price || m.cost; addLot(m, { qty: l.qty, cost: m.cost, date: today(), ref: p.no }); } }
     p.status = 'Received';
     toast(`${p.no} received into stores, waiting for QC`);
     commit();
@@ -133,7 +145,19 @@ export const actions = {
   },
   delKeg(id) { if (keg(id).status !== 'Empty') return toast('Only empty kegs can be deleted'); remove('kegs', id, 'keg'); },
   kegPickup(id) { Object.assign(keg(id), { status: 'Cleaning', customerId: '', batchId: '', since: today() }); toast('Keg back at the brewery for cleaning'); commit(); },
-  kegClean(id) { Object.assign(keg(id), { status: 'Empty', since: today() }); toast('Keg cleaned and empty'); commit(); },
+  kegClean(id) {
+    const k = keg(id), washer = db.equipment.find(e => /keg/i.test(e.name)), chems = db.materials.filter(m => m.type === 'Chemical');
+    openForm({ title: `Wash ${k.code}`, vals: { chemicalId: chems[0]?.id || '', chemQty: 0.05, result: 'Pass' },
+      fields: [{ k: 'chemicalId', label: 'Chemical', type: 'select', options: [{ v: '', t: 'None' }, ...chems.map(m => ({ v: m.id, t: m.name }))] }, { k: 'chemQty', label: 'Chemical used', type: 'number' },
+        { k: 'result', label: 'Check', type: 'select', options: [{ v: 'Pass', t: 'Pass' }, { v: 'Fail', t: 'Fail, wash again' }] }],
+      note: washer ? `Logged as a CIP cycle on ${washer.name}.` : 'Add a keg washer under Machines to log washes against it.',
+      onSave: v => {
+        const m = mat(v.chemicalId);
+        if (m && v.chemQty) consume(m, v.chemQty);
+        if (washer) db.cip.push({ id: uid(), date: today(), targetId: washer.id, cycle: 'Full CIP', conc: '', temp: '', mins: '', chemicalId: v.chemicalId, chemQty: v.chemQty, operator: '', result: v.result, note: `Keg ${k.code}` });
+        if (v.result === 'Pass') { Object.assign(k, { status: 'Empty', since: today() }); toast(`${k.code} washed and empty`); } else toast(`${k.code} failed, wash again`);
+      } });
+  },
   showQr(ref) {
     const [kind, id] = ref.split(':');
     const item = kind === 'keg' ? keg(id) : kind === 'tank' ? tank(id) : db.equipment.find(e => e.id === id);

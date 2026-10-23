@@ -1,6 +1,6 @@
 // Utilities and wastage, reports, excise and tax, settings and backup.
 import { db, commit, replace, clean, isBackup } from '../store.js';
-import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo, daysBetween } from '../util.js';
+import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysAgo, daysBetween, downloadCsv } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, field, readForm, bar } from '../ui.js';
 import { demo } from '../demo.js';
 import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp } from '../calc.js';
@@ -86,28 +86,39 @@ export const views = {
   },
 
   tax() {
-    const reg = db.batches.filter(b => b.readyDate).sort((a, b) => a.readyDate.localeCompare(b.readyDate));
-    const months = Object.create(null);
-    for (const s of db.sales) { const c = invoice(s), m = (months[s.date.slice(0, 7)] ||= { beer: 0, vat: 0, food: 0, cgst: 0, sgst: 0 }); for (const f in m) m[f] += c[f]; }
-    return head('Excise and tax', `Excise is booked at the Settings rate when a batch is marked Ready. State: ${esc(db.settings.state)}.`)
-      + panel('Excise register', table(['Batch', 'Beer', 'Brewed', 'Ready', { t: 'Bulk litres', n: 1 }, { t: 'ABV', n: 1 }, { t: 'Rate / L', n: 1 }, { t: 'Duty', n: 1 }],
-        reg.map(b => `<tr><td class="code">${esc(b.code)}</td><td>${esc(rec(b.recipeId)?.name || '')}</td><td>${fmtDate(b.date)}</td><td>${fmtDate(b.readyDate)}</td><td class="n">${num(b.volume)}</td><td class="n">${num(abv(b.og, b.fg))}%</td><td class="n">${inr(b.dutyRate)}</td><td class="n">${inr(duty(b))}</td></tr>`),
-        `<tfoot><tr><td colspan="4">Total</td><td class="n">${num(sum(reg, b => b.volume))}</td><td></td><td></td><td class="n">${inr(sum(reg, duty))}</td></tr></tfoot>`))
+    const reg = db.batches.filter(b => b.readyDate && b.dutyRate).sort((a, b) => a.readyDate.localeCompare(b.readyDate));
+    const removals = [...db.sales.filter(x => x.duty).map(x => ({ date: x.date, ref: x.no, who: x.customer, duty: x.duty, kind: 'Taproom' })),
+      ...db.dispatches.filter(d => d.duty).map(d => ({ date: d.date, ref: d.no, who: cust(d.customerId)?.name || '', duty: d.duty, kind: 'Dispatch' }))].sort((a, b) => a.date.localeCompare(b.date));
+    const months = taxMonths();
+    const basis = db.settings.exciseBasis === 'Removal' ? 'on removal (each taproom pour and dispatch)' : 'when a batch is marked Ready';
+    return head('Excise and tax', `Excise is booked at the Settings rate ${basis}. State: ${esc(db.settings.state)}.`, `${btn('Excise CSV', 'csvExcise', '', 'ghost')} ${btn('VAT and GST CSV', 'csvTax', '', 'ghost')}`)
+      + panel('Excise register, booked at Ready', table(['Batch', 'Beer', 'Brewed', 'Ready', { t: 'Bulk litres', n: 1 }, { t: 'ABV', n: 1 }, { t: 'Rate / L', n: 1 }, { t: 'Duty', n: 1 }],
+        reg.map(b => `<tr><td class="code">${esc(b.code)}</td><td>${esc(rec(b.recipeId)?.name || '')}</td><td>${fmtDate(b.date)}</td><td>${fmtDate(b.readyDate)}</td><td class="n">${num(b.dutyL || b.volume)}</td><td class="n">${num(abv(b.og, b.fg))}%</td><td class="n">${inr(b.dutyRate)}</td><td class="n">${inr(duty(b))}</td></tr>`),
+        `<tfoot><tr><td colspan="4">Total</td><td class="n">${num(sum(reg, b => b.dutyL || b.volume))}</td><td></td><td></td><td class="n">${inr(sum(reg, duty))}</td></tr></tfoot>`))
+      + (removals.length || db.settings.exciseBasis === 'Removal' ? panel('Excise on removal', table(['Date', 'Kind', 'Ref', 'Customer', { t: 'Duty', n: 1 }], removals.map(x => `<tr><td>${fmtDate(x.date)}</td><td>${pill(x.kind, 'grey')}</td><td class="code">${esc(x.ref)}</td><td>${esc(x.who)}</td><td class="n">${inr(x.duty)}</td></tr>`),
+        `<tfoot><tr><td colspan="4">Total</td><td class="n">${inr(sum(removals, x => x.duty))}</td></tr></tfoot>`)) : '')
       + panel('Monthly VAT and GST', table(['Month', { t: 'Beer sales', n: 1 }, { t: 'VAT', n: 1 }, { t: 'Food sales', n: 1 }, { t: 'CGST', n: 1 }, { t: 'SGST', n: 1 }],
         Object.keys(months).sort().reverse().map(k => { const m = months[k]; return `<tr><td>${k}</td><td class="n">${inr(m.beer)}</td><td class="n">${inr(m.vat)}</td><td class="n">${inr(m.food)}</td><td class="n">${inr(m.cgst)}</td><td class="n">${inr(m.sgst)}</td></tr>`; }))
         + '<p class="note">Alcoholic liquor for human consumption sits outside GST. It is taxed through state excise and VAT, so check the rates against your state\'s current notification.</p>');
   },
+
 
   settings() {
     return head('Settings', 'Brewery details, tax rates and brewhouse efficiency. Data lives in this browser only, so export a backup often.')
       + `<form class="panel" id="settingsForm"><div class="grid">${SETTINGS_FIELDS.map(f => field(f, db.settings[f.k])).join('')}</div>
         <p class="note">The sample rates are placeholders. Replace them with your state's notified excise duty and VAT on beer.</p>
         <div class="card-acts"><button class="primary">Save settings</button></div></form>`
-      + panel('Backup', `<p class="note">Download everything as one JSON file, or restore it on another computer.</p>
+      + panel('Backup', `<p class="note">Download everything as one JSON file, or restore it on another computer. ${db.settings.lastBackup ? `Last backup ${fmtDate(db.settings.lastBackup)}, ${daysBetween(db.settings.lastBackup, today())} days ago.` : '<b class="bad">No backup taken yet.</b>'}</p>
         <div class="card-acts wrap">${btn('Export backup', 'exportData', '', 'ghost')}<label class="ghost file">Import backup<input type="file" accept=".json,application/json" id="importFile" hidden></label>
         ${btn('Load demo brewpub', 'resetDemo', '', 'ghost')}${btn('Start empty', 'clearAll', '', 'ghost danger')}</div>`);
   },
 };
+
+function taxMonths() {
+  const months = Object.create(null);
+  for (const s of db.sales) { const c = invoice(s), m = (months[s.date.slice(0, 7)] ||= { beer: 0, vat: 0, food: 0, cgst: 0, sgst: 0 }); for (const f in m) m[f] += c[f]; }
+  return months;
+}
 
 export const SETTINGS_FIELDS = [
   { k: 'name', label: 'Brewery name' }, { k: 'gstin', label: 'GSTIN' }, { k: 'address', label: 'Address', wide: 1 }, { k: 'state', label: 'State' },
@@ -115,6 +126,8 @@ export const SETTINGS_FIELDS = [
   { k: 'foodGst', label: 'GST on food (%)', type: 'number' }, { k: 'efficiency', label: 'Brewhouse efficiency (%)', type: 'number' },
   { k: 'cipDays', label: 'CIP valid for (days)', type: 'number' }, { k: 'lossTarget', label: 'Beer loss target per batch (%)', type: 'number' },
   { k: 'lossAllow', label: 'Excise loss allowance (%)', type: 'number' },
+  { k: 'exciseBasis', label: 'Book excise', type: 'select', options: [{ v: 'Ready', t: 'When a batch is marked Ready' }, { v: 'Removal', t: 'On removal (taproom pour or dispatch)' }] },
+  { k: 'tradeRateL', label: 'Trade price (₹ per litre)', type: 'number' },
 ];
 
 export const actions = {
@@ -131,11 +144,25 @@ export const actions = {
   },
   delWaste(id) { remove('wastage', id, 'wastage entry'); },
 
+  csvExcise() {
+    downloadCsv('excise-register', ['Basis', 'Date', 'Ref', 'Beer or customer', 'Bulk litres', 'Rate per litre', 'Duty'], [
+      ...db.batches.filter(b => b.readyDate && b.dutyRate).map(b => ['Ready', b.readyDate, b.code, rec(b.recipeId)?.name || '', b.dutyL || b.volume, b.dutyRate, +duty(b).toFixed(2)]),
+      ...db.sales.filter(x => x.duty).map(x => ['Removal', x.date, x.no, x.customer, '', db.settings.exciseRate, x.duty]),
+      ...db.dispatches.filter(d => d.duty).map(d => ['Removal', d.date, d.no, cust(d.customerId)?.name || '', sum(d.lines, l => l.litres), db.settings.exciseRate, d.duty])]);
+  },
+  csvTax() { const m = taxMonths(); downloadCsv('vat-gst-monthly', ['Month', 'Beer sales', 'VAT', 'Food sales', 'CGST', 'SGST'], Object.keys(m).sort().map(k => [k, ...['beer', 'vat', 'food', 'cgst', 'sgst'].map(f => +m[k][f].toFixed(2))])); },
+  csvSales() {
+    downloadCsv('sales', ['Invoice', 'Date', 'Customer', 'GSTIN', 'Type', 'Beer', 'Food', 'VAT', 'CGST', 'SGST', 'Total'], db.sales.map(s => { const c = invoice(s); return [s.no, s.date, s.customer, s.gstin, s.dispatchId ? 'Trade' : 'Taproom', ...[c.beer, c.food, c.vat, c.cgst, c.sgst, c.total].map(x => +x.toFixed(2))]; }));
+  },
+  csvLosses() { downloadCsv('beer-losses', ['Date', 'Batch', 'Beer', 'Stage', 'Litres', 'Reason'], db.losses.map(l => { const b = db.batches.find(x => x.id === l.batchId); return [l.date, b?.code || '', rec(b?.recipeId)?.name || '', l.stage, l.litres, l.reason]; })); },
+  csvAdjust() { downloadCsv('stock-adjustments', ['Date', 'Count', 'Item', 'Change', 'Value', 'Reason'], db.adjustments.map(a => [a.date, db.counts.find(c => c.id === a.countId)?.no || '', a.label, a.delta, a.value, a.reason])); },
   exportData() {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }));
     a.download = `brewhouse-backup-${today()}.json`;
     a.click();
+    db.settings.lastBackup = today();
+    commit();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   },
   resetDemo() { if (confirm('Replace all data with the demo brewpub?')) { replace(demo()); commit(); } },

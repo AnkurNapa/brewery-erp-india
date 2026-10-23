@@ -15,7 +15,7 @@ export function demo() {
   const materials = [
     m('Pale malt', 'Malt', 'kg', 620, 200, 65, { extract: 309, ebc: 6, vendorId: vMalt, expiry: ahead(240) }),
     m('Wheat malt', 'Malt', 'kg', 180, 60, 80, { extract: 317, ebc: 4, vendorId: vMalt, expiry: ahead(200) }),
-    m('Munich malt', 'Malt', 'kg', 90, 40, 90, { extract: 292, ebc: 20, vendorId: vMalt, qc: 'Pending', expiry: ahead(260) }),
+    m('Munich malt', 'Malt', 'kg', 90, 40, 90, { extract: 292, ebc: 20, vendorId: vMalt, expiry: ahead(260), lots: [{ id: uid(), date: daysAgo(40), qty: 60, expiry: ahead(200), qc: 'Approved', cost: 90, ref: 'PO-0000' }, { id: uid(), date: daysAgo(1), qty: 30, expiry: ahead(260), qc: 'Pending', cost: 90, ref: 'Direct receipt' }] }),
     m('Crystal 60', 'Malt', 'kg', 30, 20, 110, { extract: 284, ebc: 120, vendorId: vMalt, expiry: ahead(180) }),
     m('Cascade', 'Hops', 'kg', 6, 5, 3200, { alpha: 6.5, vendorId: vHops, expiry: ahead(300) }),
     m('Citra', 'Hops', 'kg', 2, 3, 5200, { alpha: 12, vendorId: vHops, expiry: ahead(280) }),
@@ -119,7 +119,7 @@ export function demo() {
   });
 
   return {
-    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, cipDays: 3, lossTarget: 5, lossAllow: 2 },
+    settings: { name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, lastBackup: daysAgo(2) },
     seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13, count: 2 },
     materials, recipes, products, tanks, batches, sales, kegs, customers, vendors, packs, dispatches,
     equipment: [

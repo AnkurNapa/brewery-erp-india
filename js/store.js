@@ -28,7 +28,10 @@ const IDS = v => (Array.isArray(v) ? v.map(ID) : []);
 const LINE = { id: ID, qty: NUM, price: NUM, time: OPT };
 const RSNAP = { name: STR, style: STR, size: NUM, items: LIST(LINE) };
 const SCHEMA = {
-  materials: { id: ID, name: STR, type: STR, unit: STR, qty: NUM, reorder: NUM, cost: NUM, extract: NUM, ebc: NUM, alpha: NUM, atten: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), vendorId: ID },
+  materials: {
+    id: ID, name: STR, type: STR, unit: STR, qty: NUM, reorder: NUM, cost: NUM, extract: NUM, ebc: NUM, alpha: NUM, atten: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), vendorId: ID,
+    lots: LIST({ id: ID, date: DATE, qty: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), cost: NUM, ref: STR }),
+  },
   recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, packLoss: NUM, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
   products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM },
   tanks: { id: ID, name: STR, type: STR, capacity: NUM, hygiene: ONE(HYGIENE), cleanedOn: DATE },
@@ -39,14 +42,14 @@ const SCHEMA = {
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
     brew: obj({ mashTemp: OPT, preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
-  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM }) },
+  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM }) },
   kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE },
   equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM },
   customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR },
   vendors: { id: ID, name: STR, gstin: STR, phone: STR, supplies: STR },
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
   packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, kegIds: IDS },
-  dispatches: { id: ID, no: STR, date: DATE, customerId: ID, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM }) },
+  dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM }) },
   tasks: { id: ID, title: STR, type: ONE(TASK_TYPES), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
   wastage: { id: ID, date: DATE, kind: ONE(['Beer', 'Material']), ref: ID, qty: NUM, reason: STR },
@@ -55,13 +58,18 @@ const SCHEMA = {
   counts: { id: ID, no: STR, date: DATE, status: ONE(['Open', 'Posted']), lines: LIST({ ref: REF, label: STR, unit: STR, system: NUM, counted: OPT, cost: NUM, reason: STR }) },
   adjustments: { id: ID, date: DATE, countId: ID, ref: REF, label: STR, delta: NUM, value: NUM, reason: STR },
 };
-const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM };
+const SETTINGS = { name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, lastBackup: DATE };
 const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM };
 
 export function clean(d) {
   const out = { settings: obj(SETTINGS)(d?.settings), seq: obj(SEQ)(d?.seq) };
   for (const k in SCHEMA) out[k] = LIST(SCHEMA[k])(d?.[k]);
   for (const k in out.seq) out.seq[k] ||= 1;
+  // Older data has one stock figure per material: turn it into a single lot.
+  for (const m of out.materials) {
+    if (!m.lots.length && m.qty) m.lots.push({ id: 'l' + m.id, date: '', qty: m.qty, expiry: m.expiry, qc: m.qc, cost: m.cost, ref: 'Opening stock' });
+    m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
+  }
   return out;
 }
 export const isBackup = d => d && typeof d === 'object' && d.settings && Array.isArray(d.batches);
@@ -82,5 +90,19 @@ export function persist() {
 export function commit() {
   persist();
   dispatchEvent(new Event('db'));
+}
+// Stock moves through lots so QC and expiry apply per delivery.
+// Use approved stock first, earliest expiry first. A shortfall drives the newest lot negative.
+export function consume(m, qty) {
+  let left = qty;
+  const order = [...m.lots].sort((a, b) => (a.qc !== 'Approved') - (b.qc !== 'Approved') || (a.expiry || '9999').localeCompare(b.expiry || '9999'));
+  for (const l of order) { if (left <= 0) break; const take = Math.min(left, Math.max(0, l.qty)); l.qty = +(l.qty - take).toFixed(3); left -= take; }
+  if (left > 1e-9) { const last = m.lots.at(-1) || (m.lots[0] = { id: 'l' + m.id, date: '', qty: 0, expiry: '', qc: 'Approved', cost: m.cost, ref: 'Shortfall' }); last.qty = +(last.qty - left).toFixed(3); }
+  m.lots = m.lots.filter(l => Math.abs(l.qty) > 1e-9 || l.qc === 'Pending');
+  m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
+}
+export function addLot(m, lot) {
+  m.lots.push({ id: Math.random().toString(36).slice(2, 9), date: '', expiry: '', qc: 'Pending', cost: m.cost, ref: '', ...lot });
+  m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
 }
 export const next = (key, prefix, width) => `${prefix}-${String(db.seq[key]++).padStart(width, '0')}`;

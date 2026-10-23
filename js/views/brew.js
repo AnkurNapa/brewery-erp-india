@@ -1,8 +1,8 @@
 // Tanks, batches, batch lifecycle record, recipes and packaging.
-import { db, next, commit, STATUSES, IN_TANK, LOSS_STAGES } from '../store.js';
+import { db, next, commit, consume, addLot, STATUSES, IN_TANK, LOSS_STAGES } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
-import { mat, rec, tank, keg, cust, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
+import { mat, rec, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
 
 const FORMATS = { 'Keg 30 L': 30, 'Keg 50 L': 50, 'Can 330 ml': 0.33, 'Bottle 330 ml': 0.33, 'Bottle 650 ml': 0.65, 'Growler 2 L': 2 };
 // Standard SRM colour chart, 1 to 40.
@@ -34,10 +34,10 @@ export function settle() {
 function issue(b) {
   const r = rec(b.recipeId), list = issueList(r, b.volume);
   const short = list.filter(i => (mat(i.id)?.qty || 0) < i.qty).map(i => mat(i.id)?.name);
-  const qc = list.filter(i => mat(i.id)?.qc !== 'Approved').map(i => mat(i.id)?.name);
+  const qc = list.filter(i => mat(i.id) && mat(i.id).qty >= i.qty && approvedQty(mat(i.id)) < i.qty).map(i => mat(i.id)?.name);
   const warn = [short.length && `Not enough in stores: ${short.join(', ')}.`, qc.length && `Not QC approved: ${qc.join(', ')}.`].filter(Boolean);
   if (warn.length && !confirm(`${warn.join('\n')}\nIssue the ingredients anyway?`)) return false;
-  for (const i of list) { const m = mat(i.id); if (m) m.qty = +(m.qty - i.qty).toFixed(3); }
+  for (const i of list) { const m = mat(i.id); if (m) consume(m, i.qty); }
   Object.assign(b, { issued: true, issues: list, recipeVersion: r.version });
   toast(`${b.code}: ingredients issued from stores (${inr0(sum(list, i => i.cost))})`);
   return true;
@@ -51,7 +51,7 @@ export function setStatus(id, status) {
   if (status === 'Sold out' && b.status !== 'Sold out') makeDirty(tank(b.tankId));
   b.status = status;
   if (IN_TANK.includes(status) || status === 'Planned') Object.assign(b, { readyDate: '', dutyRate: 0 });
-  else if (!b.readyDate) { Object.assign(b, { readyDate: today(), dutyRate: db.settings.exciseRate, dutyL: +(b.volume - batchLoss(b)).toFixed(2) }); toast(`${b.code} booked in the excise register`); }
+  else if (!b.readyDate) { Object.assign(b, { readyDate: today(), dutyRate: db.settings.exciseBasis === 'Removal' ? 0 : db.settings.exciseRate, dutyL: +(b.volume - batchLoss(b)).toFixed(2) }); toast(db.settings.exciseBasis === 'Removal' ? `${b.code} is ready. Excise books as it is sold or dispatched` : `${b.code} booked in the excise register`); }
   commit();
 }
 
@@ -233,7 +233,7 @@ export const actions = {
     const b = db.batches.find(x => x.id === id);
     if (db.packs.some(p => p.batchId === id)) return toast('This batch has been packaged, so it cannot be deleted');
     if (!confirm(`Delete ${b.code}?${b.issued ? ' Its ingredients go back to stores.' : ''}`)) return;
-    for (const i of b.issues) { const m = mat(i.id); if (m) m.qty = +(m.qty + i.qty).toFixed(3); }
+    for (const i of b.issues) { const m = mat(i.id); if (m) addLot(m, { qty: i.qty, qc: 'Approved', date: today(), ref: `Returned from ${b.code}` }); }
     db.batches = db.batches.filter(x => x.id !== id);
     commit();
   },
@@ -301,6 +301,7 @@ export const actions = {
       note: 'The difference is recorded as a transfer loss. The old tank is marked dirty and a CIP task is added.',
       onSave: v => {
         if (v.litresIn > v.litresOut) { toast('Litres in cannot be more than litres out'); return false; }
+        if (v.litresIn > tank(v.toId).capacity) { toast(`${tank(v.toId).name} holds ${num(tank(v.toId).capacity)} L`); return false; }
         if (!fitOrConfirm(tank(v.toId))) return false;
         b.transfers.push({ date: v.date, fromId: b.tankId, toId: v.toId, litresOut: v.litresOut, litresIn: v.litresIn });
         if (v.litresOut - v.litresIn > 0) db.losses.push({ id: uid(), date: v.date, batchId: b.id, stage: 'Transfer', litres: +(v.litresOut - v.litresIn).toFixed(2), reason: `${from?.name} to ${tank(v.toId).name}` });

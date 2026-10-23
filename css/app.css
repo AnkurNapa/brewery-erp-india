@@ -34,6 +34,12 @@ button { font: inherit; cursor: pointer; color: inherit; }
 #side .logo { display: block; padding: 4px 12px 0; }
 .logo b { display: block; font-size: 26px; font-weight: 700; letter-spacing: -.03em; color: #e0a14a; }
 .logo span { font-size: 12px; font-weight: 600; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.search { position: relative; margin: 0 4px 6px; }
+.search input { min-height: 36px; padding: 6px 12px; font-size: 15px; background: var(--fill); }
+#results { margin-top: 4px; }
+#results a { display: flex !important; justify-content: space-between; gap: 8px; }
+#results small { color: var(--muted); font-size: 12px; }
+#results .empty { padding: 6px 12px; font-size: 13px; }
 #side .brand { margin: 6px 12px 10px; font-size: 13px; color: var(--muted); }
 #side .group { margin: 18px 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 #side a:not(.logo) { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 6px 12px; border-radius: 8px; color: var(--text); font-weight: 500; transition: background-color .15s; }
@@ -162,6 +168,20 @@ select.inline { width: auto; min-height: 32px; padding: 4px 28px 4px 10px; font-
 .count-in { width: 120px; min-height: 40px; text-align: right; }
 .reason-in { min-height: 36px; padding: 6px 10px; font-size: 14px; min-width: 140px; }
 tr.flag td { background: var(--orange-t); }
+
+.setup { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+.setup li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.setup li:last-child { border-bottom: 0; }
+.setup .num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--fill); font-weight: 600; flex: none; }
+.setup .done .num { background: var(--green); color: #fff; }
+.setup .grow b { display: block; color: var(--ink); }
+.collect-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.collect { background: var(--card2); border-radius: 12px; padding: 12px; }
+.collect h4 { margin: 0 0 6px; font-size: 15px; color: var(--ink); } .collect h4 small { color: var(--muted); font-weight: 500; }
+.collect-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 14px; }
+.help-step { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.help-step:last-child { border-bottom: 0; }
+.help-step .num { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-t); color: var(--blue); display: grid; place-items: center; font-weight: 600; font-size: 13px; flex: none; }
 
 /* ---------- calendar ---------- */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }

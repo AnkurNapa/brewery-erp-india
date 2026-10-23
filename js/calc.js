@@ -40,6 +40,11 @@ export const issueList = (r, volume) => r.items.map(i => {
 export const batchCost = b => sum(b.issues, i => i.cost);
 export const batchLoss = b => sum(db.losses.filter(l => l.batchId === b.id), l => l.litres);
 export const duty = b => (b.readyDate ? (b.dutyL || b.volume) * b.dutyRate : 0);
+// Excise on removal: booked on taproom pours and dispatches when Settings says so.
+export const removalDuty = l => (db.settings.exciseBasis === 'Removal' ? +(l * db.settings.exciseRate).toFixed(2) : 0);
+export const exciseIn = (from, to = '9999') => sum(db.batches.filter(b => b.readyDate >= from && b.readyDate <= to), duty)
+  + sum(db.sales.filter(s => s.date >= from && s.date <= to), s => s.duty) + sum(db.dispatches.filter(d => d.date >= from && d.date <= to), d => d.duty);
+export const beerLitres = lines => sum(lines, l => { const p = prod(l.pid); return p?.kind === 'beer' ? l.qty * p.ml / 1000 : 0; });
 export const packedL = p => p.units * p.unitL;
 export const batchPackedL = b => sum(db.packs.filter(p => p.batchId === b.id), packedL);
 
@@ -69,12 +74,15 @@ export const reserved = mid => sum(db.batches.filter(b => b.status === 'Planned'
   return r ? sum(r.items.filter(i => i.id === mid), i => i.qty * b.volume / (r.size || 1)) : 0;
 });
 export const onOrder = mid => sum(db.pos.filter(p => p.status === 'Open').flatMap(p => p.lines).filter(l => l.id === mid), l => l.qty);
-export const available = m => m.qty - reserved(m.id);
+export const approvedQty = m => sum(m.lots.filter(l => l.qc === 'Approved'), l => l.qty);
+export const pendingLots = m => m.lots.filter(l => l.qc === 'Pending' && l.qty > 0);
+export const expiryOf = m => m.lots.filter(l => l.qty > 0 && l.expiry).map(l => l.expiry).sort()[0] || '';
+export const available = m => approvedQty(m) - reserved(m.id);
 
 export function mrp() {
   return db.materials.map(m => {
     const res = reserved(m.id), ord = onOrder(m.id);
-    return { m, res, ord, avail: m.qty - res, suggest: Math.max(0, Math.ceil(m.reorder * 1.5 + res - m.qty - ord)) };
+    return { m, res, ord, avail: approvedQty(m) - res, suggest: Math.max(0, Math.ceil(m.reorder * 1.5 + res - m.qty - ord)) };
   });
 }
 
@@ -191,9 +199,12 @@ export function alerts() {
   for (const m of db.materials) {
     const av = available(m);
     if (av <= m.reorder) out.push({ lvl: 'low', text: `${m.name} at ${+av.toFixed(2)} ${m.unit} available, reorder at ${m.reorder}`, href: '#purchasing' });
-    if (m.expiry && daysBetween(t, m.expiry) <= 30) out.push({ lvl: 'warn', text: `${m.name} expires ${daysBetween(t, m.expiry) < 0 ? 'already' : 'in ' + daysBetween(t, m.expiry) + ' days'}`, href: '#materials' });
-    if (m.qc === 'Pending') out.push({ lvl: 'info', text: `${m.name} is waiting for QC approval`, href: '#materials' });
+    const exp = expiryOf(m), pend = pendingLots(m).length;
+    if (exp && daysBetween(t, exp) <= 30) out.push({ lvl: 'warn', text: `${m.name} ${daysBetween(t, exp) < 0 ? 'has expired stock' : 'expires in ' + daysBetween(t, exp) + ' days'}`, href: '#materials' });
+    if (pend) out.push({ lvl: 'info', text: `${m.name}: ${pend} deliver${pend > 1 ? 'ies' : 'y'} waiting for QC`, href: '#materials' });
   }
+  const lb = db.settings.lastBackup, age = lb ? daysBetween(lb, t) : Infinity;
+  if (age > 7) out.push({ lvl: 'warn', text: lb ? `Last backup was ${age} days ago` : 'No backup taken yet', href: '#settings' });
   for (const k of db.tasks.filter(k => k.status === 'Open' && k.date && k.date <= t)) out.push({ lvl: k.date < t ? 'low' : 'warn', text: `${k.date < t ? 'Overdue' : 'Today'}: ${k.title}`, href: '#calendar' });
   for (const e of db.equipment) {
     const due = e.lastService && e.serviceDays ? addDays(e.lastService, e.serviceDays) : '';

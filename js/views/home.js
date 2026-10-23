@@ -2,7 +2,18 @@
 import { db, next, commit, IN_TANK } from '../store.js';
 import { esc, num, inr0, today, addDays, fmtDate, sum, uid, toast } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, bar, openForm } from '../ui.js';
-import { rec, beerStock, invoice, alerts, duty, tankLeft } from '../calc.js';
+
+const setupCard = () => {
+  const s = db.settings, steps = [
+    ['Brewery details and tax rates', 'Name, GSTIN, state excise and VAT', !!(s.gstin && s.name && s.name !== 'My Brewery'), '<a class="ghost" href="#settings">Open Settings</a>'],
+    ['Tanks', 'Fermenters and brite tanks with capacity', db.tanks.length > 0, btn('Add tank', 'newTank', '', 'ghost')],
+    ['Raw materials', 'Malt, hops, yeast and chemicals with opening stock', db.materials.length > 0, btn('Add material', 'newMat', '', 'ghost')],
+    ['First recipe', 'The engine works out gravity, bitterness and cost', db.recipes.length > 0, btn('New recipe', 'newRec', '', 'ghost')],
+  ];
+  if (steps.every(x => x[2])) return '';
+  return panel('Get started', `<ol class="setup">${steps.map(([t, sub, done, act], i) => `<li class="${done ? 'done' : ''}"><span class="num">${done ? '✓' : i + 1}</span><span class="grow"><b>${t}</b><small class="sub">${sub}</small></span>${done ? '' : act}</li>`).join('')}</ol>`);
+};
+import { rec, beerStock, invoice, alerts, exciseIn, tankLeft, tankFit } from '../calc.js';
 
 const TASK_TYPES = ['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other'];
 const TASK_FIELDS = [
@@ -16,11 +27,12 @@ export const views = {
     const stock = beerStock(), m = today().slice(0, 7), list = alerts();
     const left = sum(stock, s => s.total);
     const sales = sum(db.sales.filter(s => s.date.startsWith(m)), s => invoice(s).total);
-    const exc = sum(db.batches.filter(b => b.readyDate.startsWith(m)), duty);
+    const exc = exciseIn(m + '-01', m + '-31');
     const busy = db.tanks.filter(t => db.batches.some(b => b.tankId === t.id && IN_TANK.concat('Ready').includes(b.status)));
     const max = Math.max(1, ...stock.map(s => s.total));
     const open = db.tasks.filter(t => t.status === 'Open').sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
     return head('Home', `${esc(db.settings.name)} · ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}`, btn('New batch', 'newBatch'))
+      + setupCard()
       + `<div class="kpis">${kpi(`${num(left, 0)} L`, 'Beer ready to sell', 'hero')}${kpi(`${busy.length}/${db.tanks.length}`, 'Tanks in use')}${kpi(inr0(sales), 'Sales this month')}${kpi(inr0(exc), 'Excise this month')}${kpi(list.length, 'Alerts', list.length ? 'alert' : '')}</div>
       <div class="cols">
         ${panel('Brewery floor', `<div class="floor">${db.tanks.map(t => {
@@ -73,11 +85,12 @@ export const actions = {
   planBrew(rid) {
     const r = rec(rid), s = beerStock().find(x => x.r.id === rid);
     const date = s?.brewBy && s.brewBy > today() ? s.brewBy : addDays(today(), 1);
-    const free = db.tanks.find(t => /ferment|uni/i.test(t.type) && !db.batches.some(b => b.tankId === t.id && b.status !== 'Sold out' && b.status !== 'Ready'));
+    const rank = t => (tankFit(t).ok ? 0 : t.hygiene === 'Sanitised' ? 1 : t.hygiene === 'Cleaned' ? 2 : 3);
+    const free = db.tanks.filter(t => /ferment|uni/i.test(t.type) && !db.batches.some(b => b.tankId === t.id && !['Sold out', 'Ready'].includes(b.status))).sort((a, b) => rank(a) - rank(b))[0];
     const code = next('batch', 'B', 3);
     db.batches.push({ id: uid(), code, recipeId: r.id, recipeVersion: r.version, date, status: 'Planned', volume: r.size, og: 0, fg: 0, tankId: free?.id || '', notes: '', readyDate: '', dutyRate: 0, issued: false, issues: [], log: [], brew: { mashTemp: '', preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' } });
     db.tasks.push({ id: uid(), title: `Brew ${r.name} (${code})`, type: 'Brewing', date, assignee: '', status: 'Open' });
-    toast(`${code} planned for ${date}${free ? ' in ' + free.name : ''}. Ingredients are now reserved.`);
+    toast(`${code} planned for ${date}${free ? ` in ${free.name} (${free.hygiene.toLowerCase()}${free.hygiene === 'Dirty' ? ', CIP needed' : ''})` : ''}. Ingredients are now reserved.`);
     commit();
   },
 };

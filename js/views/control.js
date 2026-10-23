@@ -1,5 +1,5 @@
 // Quality and control: CIP log, beer losses, stock take with reconciliation.
-import { db, next, commit, persist, CIP_CYCLES, LOSS_STAGES } from '../store.js';
+import { db, next, commit, persist, consume, addLot, CIP_CYCLES, LOSS_STAGES } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysAgo, daysBetween } from '../util.js';
 import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
 import { mat, rec, tank, recipeCalc, tankLeft, tankFit, lastCip, lossBalance, packLeft, beerReconcile } from '../calc.js';
@@ -36,7 +36,7 @@ export const views = {
     const byStage = LOSS_STAGES.map(st => [st, sum(recs.filter(l => l.stage === st), l => l.litres) + (st === 'Taproom' ? sum(legacy, w => w.qty) : 0)]).filter(([, l]) => l);
     const worst = byStage.slice().sort((a, b) => b[1] - a[1])[0];
     const max = Math.max(1, ...byStage.map(([, l]) => l));
-    return head('Beer losses', `Every litre lost between the fermenter and the glass. Target ${target}% per batch.`)
+    return head('Beer losses', `Every litre lost between the fermenter and the glass. Target ${target}% per batch.`, btn('Losses CSV', 'csvLosses', '', 'ghost'))
       + seg('lossWindow', [['30', 'Last 30 days'], ['90', 'Last 90 days'], ['all', 'All time']], lossWindow)
       + `<div class="kpis four">${kpi(num(total, 0) + ' L', 'Beer lost')}${kpi(num(total / brewed * 100) + '%', allow ? `Of litres brewed, allowance ${num(allow)}%` : 'Of litres brewed', total / brewed * 100 > (allow || target) ? 'alert' : '')}${kpi(worst ? esc(worst[0]) : 'n/a', 'Biggest stage')}${kpi(num(sum(recs.filter(l => l.stage === 'Unexplained'), l => l.litres)) + ' L', 'Unexplained, from stock takes')}</div>`
       + `<div class="cols">${panel('By stage', table(['Stage', '', { t: 'Litres', n: 1 }, { t: 'Share', n: 1 }], byStage.map(([st, l]) => `<tr><td>${esc(st)}</td><td><div class="bar"><i style="width:${l / max * 100}%"></i></div></td><td class="n">${num(l)}</td><td class="n">${num(l / (total || 1) * 100, 0)}%</td></tr>`)))}
@@ -52,7 +52,7 @@ export const views = {
   },
 
   stocktake() {
-    return head('Stock take', 'Count what is really on the floor, see the variance against the system, then post adjustments with a reason.', btn('New count', 'newCount'))
+    return head('Stock take', 'Count what is really on the floor, see the variance against the system, then post adjustments with a reason.', `${btn('Adjustments CSV', 'csvAdjust', '', 'ghost')} ${btn('New count', 'newCount')}`)
       + panel('', table(['Count', 'Date', { t: 'Lines', n: 1 }, { t: 'Counted', n: 1 }, { t: 'Variance value', n: 1 }, 'Status', ''], [...db.counts].sort((a, b) => b.date.localeCompare(a.date)).map(c => {
         const done = c.lines.filter(l => l.counted !== '').length, val = sum(c.lines.filter(l => l.counted !== ''), l => (l.counted - l.system) * l.cost);
         return `<tr><td><a class="code" href="#count/${c.id}">${esc(c.no)}</a></td><td>${fmtDate(c.date)}</td><td class="n">${c.lines.length}</td><td class="n">${done}</td><td class="n"><span class="${val < 0 ? 'bad' : ''}">${inr0(val)}</span></td>
@@ -112,7 +112,7 @@ export const actions = {
       note: 'Full CIP and Sanitiser cycles that pass leave the tank sanitised. Other passing cycles leave it cleaned. A failed check leaves it dirty.',
       onSave: v => {
         const m = mat(v.chemicalId);
-        if (m && v.chemQty) m.qty = +(m.qty - v.chemQty).toFixed(3);
+        if (m && v.chemQty) consume(m, v.chemQty);
         db.cip.push({ id: uid(), ...v });
         const t = tank(v.targetId);
         if (t) {
@@ -153,7 +153,7 @@ export const actions = {
     if (!confirm(`Post ${changes.length} adjustment${changes.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
     for (const l of changes) {
       const d = l.counted - l.system, [kind, ref] = l.ref.split(':');
-      if (kind === 'm') { const m = mat(ref); if (m) m.qty = +(m.qty + d).toFixed(3); }
+      if (kind === 'm') { const m = mat(ref); if (m) { if (d < 0) consume(m, -d); else addLot(m, { qty: d, qc: 'Approved', date: c.date, ref: c.no }); } }
       if (kind === 'p') { const p = db.packs.find(x => x.id === ref); if (p) p.units = Math.max(0, p.units + d); }
       if (kind === 'b') db.losses.push({ id: uid(), date: c.date, batchId: ref, stage: 'Unexplained', litres: +(-d).toFixed(2), reason: `${c.no}: ${l.reason}` });
       db.adjustments.push({ id: uid(), date: c.date, countId: c.id, ref: l.ref, label: l.label, delta: +d.toFixed(3), value: +(d * l.cost).toFixed(2), reason: l.reason });

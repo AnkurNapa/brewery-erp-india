@@ -8,14 +8,15 @@ import * as stores from './views/stores.js';
 import * as sales from './views/sales.js';
 import * as records from './views/records.js';
 import * as control from './views/control.js';
+import * as help from './views/help.js';
 
-const MODULES = [home, brew, stores, sales, control, records];
+const MODULES = [home, brew, stores, sales, control, records, help];
 const VIEWS = Object.assign({}, ...MODULES.map(m => m.views));
 const ACTIONS = Object.assign({}, ...MODULES.map(m => m.actions));
 const SEGS = Object.assign({}, ...MODULES.map(m => m.segs || {}));
 
 const NAV = [
-  ['Overview', [['dash', 'Home'], ['calendar', 'Schedule']]],
+  ['Overview', [['dash', 'Home'], ['calendar', 'Schedule'], ['help', 'Help']]],
   ['Brewing', [['tanks', 'Tanks'], ['batches', 'Batches'], ['recipes', 'Recipes'], ['packaging', 'Packaging']]],
   ['Stores', [['materials', 'Raw materials'], ['purchasing', 'Purchasing and MRP'], ['equipment', 'Equipment and kegs']]],
   ['Quality and control', [['cip', 'CIP'], ['losses', 'Beer losses'], ['stocktake', 'Stock take']]],
@@ -46,8 +47,8 @@ function draw() {
   if (brew.settle()) persist();
   const { view, arg } = route(), n = alerts().length;
   const active = { blr: 'batches', scan: 'equipment', count: 'stocktake' }[view] || view;
-  $('side').innerHTML = `<a class="logo" href="#dash"><b>Brewhouse</b><span>Brewery Management ERP</span></a><p class="brand">${esc(db.settings.name)}</p>`
-    + NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${t}${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
+  $('brand').textContent = db.settings.name;
+  $('sidenav').innerHTML = NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${t}${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
   $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${svg(k)}<span>${t}</span></a>`).join('')
     + `<button type="button" data-more ${!TABS.some(([k]) => k === active) ? 'aria-current="page"' : ''}>${svg('more')}<span>More</span></button>`;
   if (view !== cur) { prev = cur; cur = view; }
@@ -58,7 +59,7 @@ function draw() {
 
 load();
 addEventListener('db', draw);
-addEventListener('hashchange', () => { depth++; document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
+addEventListener('hashchange', () => { depth++; $('q').value = ''; $('results').innerHTML = ''; document.body.classList.remove('menu'); draw(); scrollTo(0, 0); });
 addEventListener('afterprint', () => { $('print').innerHTML = ''; });
 
 document.addEventListener('click', e => {
@@ -77,6 +78,31 @@ $('main').addEventListener('change', e => {
   if (e.target.id === 'importFile' && e.target.files[0]) records.importBackup(e.target.files[0]);
 });
 $('main').addEventListener('input', e => control.onInput(e));
+
+// Search across the records people look up most.
+function search(q) {
+  const t = q.trim().toLowerCase();
+  if (t.length < 2) return [];
+  const hit = (...xs) => xs.some(x => String(x || '').toLowerCase().includes(t));
+  const r = id => db.recipes.find(x => x.id === id)?.name;
+  return [
+    ...db.batches.filter(b => hit(b.code, r(b.recipeId))).map(b => [`#blr/${b.id}`, `${b.code} ${r(b.recipeId) || ''}`, 'Batch']),
+    ...db.kegs.filter(k => hit(k.code)).map(k => [`#scan/${encodeURIComponent(k.code)}`, k.code, 'Keg']),
+    ...db.tanks.filter(k => hit(k.name)).map(() => ['#tanks', 'Tanks', 'Tank']).slice(0, 1),
+    ...db.materials.filter(m => hit(m.name)).map(m => ['#materials', m.name, 'Material']),
+    ...db.recipes.filter(x => hit(x.name, x.style)).map(x => ['#recipes', x.name, 'Recipe']),
+    ...db.customers.filter(c => hit(c.name, c.city)).map(c => ['#partners', c.name, 'Customer']),
+    ...db.sales.filter(s => hit(s.no, s.customer)).slice(-5).map(s => ['#sales', `${s.no} ${s.customer}`, 'Invoice']),
+    ...db.counts.filter(c => hit(c.no)).map(c => [`#count/${c.id}`, c.no, 'Stock take']),
+  ].slice(0, 12);
+}
+$('q').addEventListener('input', e => {
+  const rows = search(e.target.value);
+  $('results').innerHTML = e.target.value.trim().length < 2 ? '' : rows.length
+    ? rows.map(([href, label, kind]) => `<a href="${href}" role="option">${esc(label)}<small>${kind}</small></a>`).join('')
+    : '<p class="empty">No matches</p>';
+});
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = $('results').querySelector('a'); if (a) location.hash = a.getAttribute('href').slice(1); } if (e.key === 'Escape') { e.target.value = ''; $('results').innerHTML = ''; } });
 $('main').addEventListener('submit', e => {
   if (e.target.id !== 'settingsForm') return;
   e.preventDefault();
