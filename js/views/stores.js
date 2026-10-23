@@ -83,16 +83,21 @@ export const views = {
         <td class="acts">${p.status === 'Open' ? link('Receive', 'receivePo', p.id) : ''}${link('Delete', 'delPo', p.id, 'del')}</td></tr>`)));
   },
 
-  equipment() {
+  kegs() {
     const t = today(), counts = Object.fromEntries(KEG_STATES.map(s => [s, db.kegs.filter(k => k.status === s).length]));
-    return head('Equipment and kegs', 'Every tank, keg and machine gets a QR tag. Scanning it with a phone camera opens that item here.', `<a class="ghost" href="#kegscan">Scan kegs</a> ${btn('Keg CSV', 'csvKegs', '', 'ghost')} ${btn('Add keg', 'newKeg', '', 'ghost')} ${btn('Add equipment', 'newEq')}`)
+    return head('Kegs', 'Where every keg is, how fast they come back and what went missing. Each keg has a QR tag; scanning it with a phone camera opens that keg.', `<a class="primary" href="#kegscan">Scan kegs</a> ${btn('Add keg', 'newKeg', '', 'ghost')} ${btn('Keg CSV', 'csvKegs', '', 'ghost')}`)
       + `<div class="kpis">${KEG_STATES.map(s => kpi(counts[s], `Kegs ${s.toLowerCase()}`, s === 'Lost' && counts[s] ? 'alert' : '')).join('')}</div>`
       + kegMap() + kegTurns()
       + panel('Kegs', table(['Keg', 'Size', 'Status', 'Contents', 'Where', 'Since', ''], db.kegs.map(k => {
         const b = db.batches.find(x => x.id === k.batchId), days = daysBetween(k.since, t);
         return `<tr><td><a class="code" href="#scan/${encodeURIComponent(k.code)}">${esc(k.code)}</a></td><td>${k.size} L</td><td>${pill(k.status, statusCls(k.status))}</td><td>${b ? `<a href="#blr/${b.id}">${esc(b.code)} ${esc(rec(b.recipeId)?.name || '')}</a>` : ''}</td>
           <td>${esc(k.status === 'At customer' || k.status === 'Lost' ? cust(k.customerId)?.name || '' : 'Brewery')}</td><td class="${k.status === 'At customer' && days > 30 ? 'bad' : ''}">${days} d</td><td class="acts">${k.status === 'At customer' ? link('Lost', 'kegLost', k.id) : ''}${link('QR', 'showQr', 'keg:' + k.id)}${link('Delete', 'delKeg', k.id, 'del')}</td></tr>`;
-      })))
+      })));
+  },
+
+  equipment() {
+    const t = today();
+    return head('Equipment', 'Tanks and machines, with service dates. Every one gets a QR tag that opens it here. Kegs have their own page.', `<a class="ghost" href="#kegs">Kegs</a> ${btn('Add equipment', 'newEq')}`)
       + panel('Tanks', table(['Tank', 'Type', { t: 'Capacity', n: 1 }, ''], db.tanks.map(tk => `<tr><td>${esc(tk.name)}</td><td>${esc(tk.type)}</td><td class="n">${num(tk.capacity)} L</td><td class="acts">${link('QR', 'showQr', 'tank:' + tk.id)}</td></tr>`)))
       + panel('Machines and service', table(['Code', 'Name', 'Type', 'Last service', 'Next due', ''], db.equipment.map(e => {
         const due = e.lastService && e.serviceDays ? addDays(e.lastService, e.serviceDays) : '';

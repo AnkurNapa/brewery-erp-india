@@ -22,15 +22,15 @@ const SEGS = Object.assign({}, ...MODULES.map(m => m.segs || {}));
 const NAV = [
   ['Overview', [['dash', 'Home'], ['calendar', 'Schedule'], ['help', 'Help']]],
   ['Brewing', [['tanks', 'Tanks'], ['batches', 'Batches'], ['recipes', 'Recipes'], ['packaging', 'Packaging']]],
-  ['Stores', [['materials', 'Raw materials'], ['purchasing', 'Purchasing and MRP'], ['equipment', 'Equipment and kegs']]],
+  ['Stores', [['materials', 'Raw materials'], ['purchasing', 'Purchasing and MRP'], ['equipment', 'Equipment']]],
   ['Quality and control', [['cip', 'CIP'], ['losses', 'Beer losses'], ['stocktake', 'Stock take']]],
-  ['Sales', [['sales', 'Taproom sales'], ['dispatch', 'Dispatch'], ['menu', 'Menu'], ['partners', 'Customers and vendors']]],
+  ['Sales', [['sales', 'Taproom sales'], ['dispatch', 'Dispatch'], ['kegs', 'Kegs'], ['menu', 'Menu'], ['partners', 'Customers and vendors']]],
   ['Records', [['records', 'Utilities and wastage'], ['reports', 'Reports'], ['tax', 'Excise and tax'], ['setup', 'Brewery setup'], ['settings', 'Settings']]],
 ];
 const TABS = [['dash', 'Home'], ['tanks', 'Tanks'], ['batches', 'Batches'], ['sales', 'Sales']];
 // Simple line glyphs for the phone tab bar, drawn inline so there is no icon font to load.
 // Detail screens get an iOS style back button to their parent list.
-const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], kegscan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'], recipe: ['recipes', 'Recipes'], compare: ['recipes', 'Recipes'] };
+const PARENT = { blr: ['batches', 'Batches'], scan: ['kegs', 'Kegs'], kegscan: ['kegs', 'Kegs'], count: ['stocktake', 'Stock take'], recipe: ['recipes', 'Recipes'], compare: ['recipes', 'Recipes'] };
 let depth = 0, prev = null, cur = null;
 const TITLES = Object.fromEntries(NAV.flatMap(([, items]) => items));
 
@@ -42,7 +42,7 @@ function route() {
 function draw() {
   if (brew.settle()) persist();
   const { view, arg } = route(), n = alerts().length;
-  const active = { blr: 'batches', scan: 'equipment', kegscan: 'equipment', count: 'stocktake', recipe: 'recipes', compare: 'recipes' }[view] || view;
+  const active = { blr: 'batches', scan: 'kegs', kegscan: 'kegs', count: 'stocktake', recipe: 'recipes', compare: 'recipes' }[view] || view;
   $('brand').textContent = db.settings.name;
   $('sidenav').innerHTML = NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${icon(k)}<span class="nav-label">${t}</span>${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
   $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${icon(k, 'tab-ico')}<span>${t}</span></a>`).join('')

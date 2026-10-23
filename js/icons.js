@@ -15,6 +15,7 @@ export const ICON = {
   losses: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>',
   stocktake: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M8.5 9.5l1.5 1.5 2.8-3M8.5 15.5l1.5 1.5 2.8-3M15.5 10h.5M15.5 16h.5"/>',
   sales: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  kegs: '<path d="M7.5 3h9l1.5 3.5v11L16.5 21h-9L6 17.5v-11z"/><path d="M6 8.5h12M6 15.5h12"/>',
   dispatch: '<path d="M3 6.5h11v9.5H3zM14 9.5h3.8l3.2 3.3V16h-7"/><circle cx="7" cy="18" r="1.7"/><circle cx="17" cy="18" r="1.7"/>',
   menu: '<path d="M7 4h10l-1.6 16H8.6z"/><path d="M7.4 8.5h9.2"/>',
   partners: '<circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9.2" r="2.4"/><path d="M15.6 14.3A4.5 4.5 0 0 1 21 18.6"/>',

@@ -268,7 +268,7 @@ export function alerts() {
     const due = e.lastService && e.serviceDays ? addDays(e.lastService, e.serviceDays) : '';
     if (due && due <= addDays(t, 7)) out.push({ lvl: due < t ? 'low' : 'warn', text: `${e.name} service ${due < t ? 'overdue since' : 'due'} ${fmtDate(due)}`, href: '#equipment' });
   }
-  for (const k of db.kegs.filter(k => k.status === 'At customer' && daysBetween(k.since, t) > 30)) out.push({ lvl: 'warn', text: `Keg ${k.code} has been at ${cust(k.customerId)?.name || 'a customer'} for ${daysBetween(k.since, t)} days`, href: '#equipment' });
+  for (const k of db.kegs.filter(k => k.status === 'At customer' && daysBetween(k.since, t) > 30)) out.push({ lvl: 'warn', text: `Keg ${k.code} has been at ${cust(k.customerId)?.name || 'a customer'} for ${daysBetween(k.since, t)} days`, href: '#kegs' });
   for (const tk of db.tanks) {
     const planned = db.batches.find(b => b.tankId === tk.id && b.status === 'Planned');
     if (tk.hygiene === 'Dirty') out.push({ lvl: planned ? 'low' : 'info', text: `${tk.name} needs CIP${planned ? `, ${planned.code} is planned into it on ${fmtDate(planned.date)}` : ''}`, href: '#cip' });

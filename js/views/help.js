@@ -13,8 +13,8 @@ export const ROLES = [
     ['Cellar round', [['Tanks: Log reading with gravity, temperature and pH.', 'tanks'], ['Record loss for yeast dumps or dry hop loss.', 'tanks'], ['Transfer to a brite tank. The fermenter is marked dirty and a CIP task is added.', 'tanks'], ['Move the batch to Conditioning, then Ready.', 'batches']]],
   ]],
   ['packaging', 'Packaging', [
-    ['Packaging run', [['Packaging, Package beer. Pick the batch, the format and how many.', 'packaging'], ['Enter litres drawn if more came out of the tank than went into packs. The difference is a packaging loss.', 'packaging'], ['Kegs are picked from empty stock and tagged to the batch.', 'equipment']]],
-    ['Cleaning', [['Log CIP on every empty tank, with chemical, temperature, minutes and the check result.', 'cip'], ['Wash returned kegs from the keg page: Cleaned, now empty.', 'equipment']]],
+    ['Packaging run', [['Packaging, Package beer. Pick the batch, the format and how many.', 'packaging'], ['Enter litres drawn if more came out of the tank than went into packs. The difference is a packaging loss.', 'packaging'], ['Kegs are picked from empty stock and tagged to the batch.', 'kegs']]],
+    ['Cleaning', [['Log CIP on every empty tank, with chemical, temperature, minutes and the check result.', 'cip'], ['Wash returned kegs from the keg page: Cleaned, now empty.', 'kegs']]],
   ]],
   ['stores', 'Stores', [
     ['Delivery arrives', [['Purchasing and MRP: Receive on the purchase order. The delivery is held as a pending lot.', 'purchasing'], ['Raw materials: QC on the material, then Approve or Reject the lot.', 'materials']]],
@@ -26,8 +26,8 @@ export const ROLES = [
     ['End of shift', [['Record line flush and spillage as a Taproom loss on the batch.', 'losses']]],
   ]],
   ['driver', 'Driver', [
-    ['Delivering', [['Scan the keg QR tag with the phone camera and tap Dispatch.', 'equipment'], ['Choose the customer. A trade invoice is raised with the dispatch.', 'dispatch']]],
-    ['Collecting', [['Dispatch, Kegs to collect, lists every keg out with each customer.', 'dispatch'], ['Scan the empty keg at the bar and tap Picked up.', 'equipment'], ['Collecting a whole load? Equipment, Scan kegs. Scan or type each code, then tap Picked up once.', 'kegscan'], ['The keg map shows every customer with kegs out. Red pins have a keg out over 30 days.', 'equipment']]],
+    ['Delivering', [['Scan the keg QR tag with the phone camera and tap Dispatch.', 'kegs'], ['Choose the customer. A trade invoice is raised with the dispatch.', 'dispatch']]],
+    ['Collecting', [['Dispatch, Kegs to collect, lists every keg out with each customer.', 'dispatch'], ['Scan the empty keg at the bar and tap Picked up.', 'kegs'], ['Collecting a whole load? Kegs, Scan kegs. Scan or type each code, then tap Picked up once.', 'kegscan'], ['The keg map shows every customer with kegs out. Red pins have a keg out over 30 days.', 'kegs']]],
   ]],
   ['accounts', 'Accounts', [
     ['Month end', [['Excise and tax: the excise register and monthly VAT and GST, with CSV downloads.', 'tax'], ['Taproom sales: Sales CSV, trade and taproom invoices together.', 'sales'], ['Utilities and wastage: enter the month\'s bills so cost per litre is right.', 'records'], ['Stock take: Adjustments CSV for the auditor.', 'stocktake'], ['Settings: Export backup at least weekly.', 'settings']]],

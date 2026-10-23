@@ -434,7 +434,7 @@ test('34 legal pages: linked from the app and cover the key points', async ({ pa
 });
 
 test('35 kegs: turns, history, lost, bulk pickup, own codes and recall trace', async ({ page }) => {
-  await fresh(page, 'equipment');
+  await fresh(page, 'kegs');
   await expect(page.locator('#kegmap')).toBeVisible();
   const s = await page.evaluate(() => import('/js/calc.js').then(c => c.kegStats()));
   expect(s.avgCycle).toBeGreaterThan(0);
@@ -457,10 +457,20 @@ test('35 kegs: turns, history, lost, bulk pickup, own codes and recall trace', a
   await go(page, 'blr/' + b1);
   await expect(page.locator('main')).toContainText('D-0001');
 
-  await go(page, 'equipment');
+  await go(page, 'kegs');
   await page.getByRole('button', { name: 'Add keg' }).click();
   await sheet(page, { codes: 'BLEFA-0001\nBLEFA-0002' });
   expect(await db(page, d => d.kegs.filter(k => k.code.startsWith('BLEFA')).length)).toBe(2);
+});
+
+test('37 navigation: Kegs has its own menu entry and icon', async ({ page }) => {
+  await fresh(page, 'dash');
+  const nav = page.locator('#sidenav a[href="#kegs"]');
+  await expect(nav).toHaveText('Kegs');
+  await expect(nav.locator('svg path')).toHaveCount(2);
+  await nav.click();
+  await expect(page.locator('main h1')).toHaveText('Kegs');
+  await expect(page.locator('#sidenav a[href="#kegs"]')).toHaveAttribute('aria-current', 'page');
 });
 
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {
