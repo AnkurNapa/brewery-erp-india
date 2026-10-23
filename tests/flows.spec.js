@@ -394,6 +394,13 @@ test('33 analytics: nothing loads until Allow, Settings can turn it off', async 
   expect(sent).toContain('page_view');
   const leaks = await page.evaluate(() => JSON.stringify(window.dataLayer.map(a => Array.from(a))));
   expect(leaks).not.toMatch(/Indiranagar|B-00|Koramangala/);
+  const b1 = await page.evaluate(async () => (await import('/js/store.js')).db.batches.find(b => b.code === 'B-001').id);
+  await go(page, 'blr/' + b1);
+  await page.waitForTimeout(100);
+  const sets = await page.evaluate(() => window.dataLayer.map(a => Array.from(a)).filter(a => a[0] === 'set').map(a => a[1]));
+  expect(sets.at(-1)).toEqual(expect.objectContaining({ page_title: 'Batch record' }));
+  expect(sets.at(-1).page_location).toMatch(/#blr$/);
+  expect(await page.evaluate(() => JSON.stringify(window.dataLayer.map(a => Array.from(a))))).not.toMatch(/B-001|Indiranagar/);
   await go(page, 'settings');
   await page.getByRole('button', { name: 'Turn analytics off' }).click();
   expect(await page.evaluate(() => localStorage.getItem('brewhouse-consent'))).toBe('denied');

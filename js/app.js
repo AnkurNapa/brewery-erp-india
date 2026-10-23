@@ -60,7 +60,9 @@ function draw() {
   document.title = `${$('main').querySelector('h1')?.textContent || 'Home'} · Brewhouse ERP`;
 }
 
-const reportView = () => setTimeout(() => analytics.pageView(route().view, document.title.split(' · ')[0]));
+// Only fixed screen names go to analytics: detail pages carry record names in their titles.
+const DETAIL = { blr: 'Batch record', recipe: 'Recipe', compare: 'Compare recipes', count: 'Stock take count', scan: 'Keg or machine' };
+const reportView = () => setTimeout(() => { const v = route().view; analytics.pageView(v, TITLES[v] || DETAIL[v] || 'Home'); });
 load();
 analytics.init();
 if (!analytics.consent()) $('consent').hidden = false;

@@ -14,7 +14,7 @@ function load() {
   window.dataLayer = window.dataLayer || [];
   window.gtag = function gtag() { window.dataLayer.push(arguments); };
   window.gtag('js', new Date());
-  window.gtag('config', ID, { send_page_view: false });
+  window.gtag('config', ID, { send_page_view: false, page_title: 'Brewhouse ERP', page_location: `${location.origin}${location.pathname}` });
   const s = document.createElement('script');
   s.async = true;
   s.src = `https://www.googletagmanager.com/gtag/js?id=${ID}`;
@@ -39,9 +39,13 @@ export function init() {
   if (consent() === 'granted') load();
 }
 
+// The page title and URL can hold batch codes or recipe names, so gtag is told a fixed title and
+// address for every hit instead of reading document.title or location.href itself.
 export function pageView(view, title) {
   if (!loaded || window[`ga-disable-${ID}`]) return;
-  window.gtag('event', 'page_view', { page_title: title, page_location: `${location.origin}${location.pathname}#${view}` });
+  const page = { page_title: title, page_location: `${location.origin}${location.pathname}#${view}` };
+  window.gtag('set', page);
+  window.gtag('event', 'page_view', page);
 }
 
 export function track(name, params = {}) {
