@@ -2,15 +2,12 @@
 import { db, next, commit, consume, addLot, STATUSES, IN_TANK, LOSS_STAGES } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween, sgFromP } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
-import { mat, rec, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
+import { mat, rec, recipeAt, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
 
 const FORMATS = { 'Keg 30 L': 30, 'Keg 50 L': 50, 'Can 330 ml': 0.33, 'Bottle 330 ml': 0.33, 'Bottle 650 ml': 0.65, 'Growler 2 L': 2 };
-// Standard SRM colour chart, 1 to 40.
-const SRM = 'FFE699 FFD878 FFCA5A FFBF42 FBB123 F8A600 F39C00 EA8F00 E58500 DE7C00 D77200 CF6900 CB6200 C35900 BB5100 B54C00 B04500 A63E00 A13700 9B3200 952D00 8E2900 882300 821E00 7B1A00 771900 701400 6A0E00 660D00 5E0B00 5A0A02 600903 520907 4C0505 470606 440607 3F0708 3B0607 3A070B 36080A'.split(' ');
-const srmHex = ebc => '#' + SRM[Math.max(0, Math.min(39, Math.round(ebc / 1.97) - 1))];
 const recipeOpts = () => db.recipes.map(r => ({ v: r.id, t: `${r.name} (v${r.version})` }));
 const tankOpts = () => [{ v: '', t: 'None' }, ...db.tanks.map(t => ({ v: t.id, t: `${t.name} · ${t.type}` }))];
-const emptyBrew = () => ({ mashTemp: '', preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' });
+const emptyBrew = () => ({ mashTemp: '', steps: [], preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' });
 
 // ---------- hygiene ----------
 export function makeDirty(t) {
@@ -90,7 +87,7 @@ export const views = {
   blr(id) {
     const b = db.batches.find(x => x.id === id);
     if (!b) return head('Batch not found') + '<p><a class="link" href="#batches">Back to batches</a></p>';
-    const r = rec(b.recipeId), t = r ? recipeCalc(r) : null, dev = deviations(b), cost = batchCost(b), packs = db.packs.filter(p => p.batchId === b.id);
+    const r = recipeAt(rec(b.recipeId), b.recipeVersion), t = r ? recipeCalc(r) : null, dev = deviations(b), cost = batchCost(b), packs = db.packs.filter(p => p.batchId === b.id);
     const kegs = db.kegs.filter(k => k.batchId === b.id), packed = batchPackedL(b);
     const disp = db.dispatches.filter(d => d.lines.some(l => packs.some(p => l.ref === 'p:' + p.id) || kegs.some(k => l.ref === 'k:' + k.id)));
     const w = b.brew, row = (label, target, actual, unit = '') => `<tr><td>${label}</td><td class="n">${target}</td><td class="n">${actual === '' ? '' : actual + unit}</td></tr>`;
@@ -99,7 +96,7 @@ export const views = {
       + `<div class="kpis">${kpi(num(b.volume) + ' L', 'Into fermenter')}${kpi(b.og ? `${sg(b.og)} → ${sg(b.fg)}` : 'n/a', 'OG → gravity now')}${kpi(b.og ? num(abv(b.og, b.fg)) + '%' : 'n/a', 'ABV')}${kpi(num(efficiency(b), 0) + '%', 'Brewhouse efficiency')}${kpi(inr0(cost), `Ingredients · ${inr(cost / (b.volume || 1))}/L`)}</div>
       <div class="cols">
         ${panel('Brew day', table(['Step', { t: 'Target', n: 1 }, { t: 'Actual', n: 1 }], [
-          row('Mash temperature', '66°C', w.mashTemp, '°C'), row('Pre-boil gravity', '', w.preBoil === '' ? '' : sg(w.preBoil)), row('Original gravity', t ? sg(t.og) : '', w.og === '' ? '' : sg(w.og)),
+          ...(r?.mash || []).map((m, i) => row(`${m.step}, ${m.mins} min`, `${m.temp}°C`, w.steps[i] ?? '', '°C')), row('Pre-boil gravity', t ? sg(sgFromP(t.steps[1].plato)) : '', w.preBoil === '' ? '' : sg(w.preBoil)), row('Original gravity', t ? sg(t.og) : '', w.og === '' ? '' : sg(w.og)),
           row('Volume into fermenter', r ? r.size + ' L' : '', w.volume, ' L'), row('Pitch temperature', /lager|helles|pils/i.test(r?.style) ? '10°C' : '18°C', w.pitchTemp, '°C')])
           + (dev.length ? `<ul class="list">${dev.map(d => `<li><i class="dot low"></i>Deviation: ${esc(d)}</li>`).join('')}</ul>` : w.og !== '' ? '<p class="note ok">Brew day on spec.</p>' : '')
           + (w.notes ? `<p class="note">${esc(w.notes)}</p>` : '') + `<div class="card-acts">${btn('Edit brew log', 'brewLog', b.id, 'ghost')}</div>`)}
@@ -131,21 +128,6 @@ export const views = {
       ${panel('Excise', b.readyDate ? `<p>${num(b.dutyL || b.volume)} bulk litres at ${inr(b.dutyRate)} per litre = <b>${inr(duty(b))}</b>, booked ${fmtDate(b.readyDate)}.</p>` : '<p class="empty">Booked when the batch is marked Ready.</p>')}`;
   },
 
-  recipes() {
-    const cards = db.recipes.map(r => {
-      const c = recipeCalc(r);
-      return `<article class="card recipe"><div class="recipe-top"><span class="swatch" style="background:${srmHex(c.ebc)}"></span><div class="grow"><h3>${esc(r.name)}</h3><small>${esc(r.style)} · v${r.version}${r.updated ? ' · ' + fmtDate(r.updated) : ''}</small></div></div>
-        <div class="metrics">${metric(sg(c.og), 'OG')}${metric(sg(c.fg), 'FG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.ebc, 0), 'EBC')}</div>
-        <div class="chain"><span><b>${num(c.pre, 0)} L</b>pre-boil</span><span><b>${num(c.post, 0)} L</b>post-boil</span><span><b>${num(c.vFv, 0)} L</b>fermenter</span><span><b>${num(c.sellable, 0)} L</b>sellable</span></div>
-        <p class="ingr">${r.items.map(i => `${esc(mat(i.id)?.name || '?')} ${num(i.qty, 2)} ${esc(mat(i.id)?.unit || '')}${i.use === 'Boil' || i.use === 'Whirlpool' ? (i.time !== '' ? ` @${i.time} min` : '') + (i.use === 'Whirlpool' ? ' whirlpool' : '') : i.use === 'Dry hop' || i.use === 'Fermenter' ? ` (${i.use.toLowerCase()})` : ''}`).join(' · ')}</p>
-        ${c.warn.length ? `<p class="note bad">${esc(c.warn[0])}</p>` : ''}
-        <div class="metrics">${metric(inr0(c.cost), 'batch cost')}${metric(inr(c.costL), 'per sellable litre')}${metric(num(c.brewhouse, 0) + '%', 'brewhouse eff.')}</div>
-        <div class="card-foot">${link('Edit', 'editRec', r.id)}${link('Mass balance', 'recBalance', r.id)}${link('Duplicate', 'dupRec', r.id)}${link('Scale', 'scaleRec', r.id)}${r.history.length ? link(`History (${r.history.length})`, 'recHistory', r.id) : ''}${link('Delete', 'delRec', r.id, 'del')}</div></article>`;
-    });
-    return head('Recipes', `Mass balance engine: extract, volume, Plato and gravity at every step from mash to sellable beer, with colour, bitterness, ABV and cost. Mash and lauter efficiency ${db.settings.efficiency || 72}%.`, btn('New recipe', 'newRec'))
-      + (cards.length ? `<div class="cards">${cards.join('')}</div>` : '<p class="empty">No recipes yet.</p>');
-  },
-
   packaging() {
     const rows = [...db.packs].sort((a, b) => b.date.localeCompare(a.date)).map(p => {
       const b = db.batches.find(x => x.id === p.batchId);
@@ -167,53 +149,10 @@ const READING_FIELDS = [
   { k: 'temp', label: 'Temperature (°C)', type: 'number', blank: 1 }, { k: 'ph', label: 'pH', type: 'number', blank: 1 }, { k: 'note', label: 'Note', wide: 1 },
 ];
 const BREW_FIELDS = [
-  { k: 'mashTemp', label: 'Mash temperature (°C)', type: 'number', blank: 1 }, { k: 'preBoil', label: 'Pre-boil gravity', type: 'number', step: '0.001', blank: 1 },
+  { k: 'preBoil', label: 'Pre-boil gravity', type: 'number', step: '0.001', blank: 1 },
   { k: 'og', label: 'Original gravity', type: 'number', step: '0.001', blank: 1 }, { k: 'volume', label: 'Volume into fermenter (L)', type: 'number', blank: 1 },
   { k: 'pitchTemp', label: 'Pitch temperature (°C)', type: 'number', blank: 1 }, { k: 'notes', label: 'Notes', wide: 1 },
 ];
-const REC_FIELDS = [
-  { k: 'name', label: 'Beer name', req: 1 }, { k: 'style', label: 'Style' }, { k: 'size', label: 'Batch size into fermenter (L)', type: 'number' },
-  { k: 'liquor', label: 'Mash thickness (L water per kg grain)', type: 'number' }, { k: 'boilLoss', label: 'Boil off (L)', type: 'number' },
-  { k: 'trubLoss', label: 'Kettle and trub loss (L)', type: 'number' }, { k: 'fermLoss', label: 'Yeast and trub loss in fermenter (L)', type: 'number' },
-  { k: 'packLoss', label: 'Packaging loss (%)', type: 'number' },
-];
-const REC_DEFAULTS = { size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3 };
-// Which uses make sense for each kind of ingredient. Minutes only matter for hops in the boil or whirlpool.
-const USE_BY_TYPE = { Malt: ['Mash', 'Boil'], Hops: ['Boil', 'Whirlpool', 'Dry hop'], Yeast: ['Pitch'], Adjunct: ['Mash', 'Boil', 'Fermenter'], Other: ['Mash', 'Boil', 'Fermenter'] };
-const usesFor = id => USE_BY_TYPE[mat(id)?.type] || ['Mash'];
-const needsMinutes = (id, use) => mat(id)?.type === 'Hops' && ['Boil', 'Whirlpool'].includes(use);
-const useCell = (id, r) => {
-  const opts = usesFor(id), use = opts.includes(r.use) ? r.use : opts[0];
-  return opts.length === 1 ? `<span class="fixed-use">${use}</span><input type="hidden" name="l_use" value="${use}">`
-    : `<select name="l_use" aria-label="Use">${opts.map(o => `<option ${o === use ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-};
-const timeCell = (id, r) => {
-  const use = usesFor(id).includes(r.use) ? r.use : usesFor(id)[0];
-  return needsMinutes(id, use) ? `<input name="l_time" type="number" step="any" min="0" aria-label="Minutes" value="${esc(r.time ?? (use === 'Whirlpool' ? 20 : 60))}">` : '<input type="hidden" name="l_time" value="">';
-};
-const recLines = rows => ({
-  label: 'Ingredient', rows,
-  opts: db.materials.filter(m => USE_BY_TYPE[m.type]).map(m => ({ id: m.id, label: `${m.name} (${m.unit})` })),
-  cols: [{ k: 'qty', label: 'Qty' }, { k: 'use', label: 'Use', text: 1, cell: useCell }, { k: 'time', label: 'Minutes', cell: timeCell }],
-  update(tr, target) {
-    const id = tr.querySelector('[name=l_id]').value, cell = k => tr.querySelector(`[data-col=${k}]`);
-    if (target.name === 'l_id') { cell('use').innerHTML = useCell(id, {}); cell('time').innerHTML = timeCell(id, {}); }
-    if (target.name === 'l_use') cell('time').innerHTML = timeCell(id, { use: target.value });
-  },
-});
-const asItems = rows => rows.map(r => ({ id: r.id, qty: r.qty, price: 0, use: r.use, time: needsMinutes(r.id, r.use) && r.time !== '' ? +r.time : '' }));
-export function massBalance(c) {
-  return table(['Step', { t: 'Litres', n: 1 }, { t: 'Extract kg', n: 1 }, { t: '°Plato', n: 1 }, { t: 'Gravity', n: 1 }, 'Notes'],
-    c.steps.map(x => `<tr><td>${x.step}</td><td class="n">${num(x.litres, 0)}</td><td class="n">${x.extract == null ? '' : num(x.extract, 1)}</td><td class="n">${x.plato ? num(x.plato, 1) : ''}</td><td class="n">${x.plato ? sg(sgFromP(x.plato)) : ''}</td><td><small class="sub">${esc(x.note)}</small></td></tr>`));
-}
-const recPreview = (v, rows) => {
-  if (!v.size) return '<p class="note">Enter a batch size to see the numbers.</p>';
-  const c = recipeCalc({ ...v, items: asItems(rows) });
-  return (c.warn.length ? `<ul class="list warn">${c.warn.map(w => `<li><i class="dot warn"></i>${esc(w)}</li>`).join('')}</ul>` : '')
-    + `<div class="metrics">${metric(sg(c.og), 'OG')}${metric(sg(c.fg), 'FG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.ebc, 0), 'EBC')}${metric(num(c.brewhouse, 0) + '%', 'brewhouse eff.')}${metric(inr0(c.cost), 'cost')}${metric(inr(c.costL), 'per litre')}</div>`
-    + `<h3 class="mb-title">Mass balance</h3>${massBalance(c)}<p class="note">Strike water ${num(c.mashWater, 0)} L, sparge ${num(c.sparge, 0)} L. Mash and lauter efficiency ${db.settings.efficiency || 72}% (Settings).</p>`;
-};
-const snapOf = r => ({ name: r.name, style: r.style, size: r.size, boilLoss: r.boilLoss, trubLoss: r.trubLoss, fermLoss: r.fermLoss, packLoss: r.packLoss, liquor: r.liquor, items: r.items });
 const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 
 export const actions = {
@@ -229,9 +168,13 @@ export const actions = {
     openForm({ title: `Reading for ${b.code}`, fields: READING_FIELDS, vals: { date: today() }, onSave: v => { b.log.push(v); if (v.gravity) b.fg = v.gravity; toast('Reading logged'); } });
   },
   brewLog(id) {
-    const b = db.batches.find(x => x.id === id);
-    openForm({ title: `Brew log ${b.code}`, fields: BREW_FIELDS, vals: b.brew, note: 'Targets come from the recipe. Anything outside tolerance is flagged as a deviation.', onSave: v => {
-      b.brew = v;
+    const b = db.batches.find(x => x.id === id), r = recipeAt(rec(b.recipeId), b.recipeVersion), c = recipeCalc(r);
+    const stepFields = r.mash.map((m, i) => ({ k: 's' + i, label: `${m.step} actual °C (target ${m.temp}°C, ${m.mins} min)`, type: 'number', blank: 1 }));
+    const tgt = { preBoil: sg(sgFromP(c.steps[1].plato)), og: sg(c.og), volume: r.size };
+    const fields = [...stepFields, ...BREW_FIELDS.map(f => (tgt[f.k] ? { ...f, label: `${f.label} (target ${tgt[f.k]})` } : f))];
+    const vals = { ...b.brew, ...Object.fromEntries(r.mash.map((_, i) => ['s' + i, b.brew.steps[i] ?? ''])) };
+    openForm({ title: `Brew log ${b.code}`, fields, vals, note: `Targets come from ${esc(r.name)} v${r.version}. Mash steps more than 1.5°C off target, OG more than 0.004 off and volume more than 5% off are flagged.`, onSave: v => {
+      b.brew = { mashTemp: '', steps: r.mash.map((_, i) => v['s' + i]), preBoil: v.preBoil, og: v.og, volume: v.volume, pitchTemp: v.pitchTemp, notes: v.notes };
       if (v.og) { b.og = v.og; if (!b.log.length) b.fg = v.og; }
       if (v.volume) b.volume = v.volume;
       const dev = deviations(b);
@@ -269,62 +212,6 @@ export const actions = {
     commit();
   },
   printBlr() { document.getElementById('print').innerHTML = document.getElementById('main').innerHTML; window.print(); },
-
-  newRec() {
-    openForm({ title: 'New recipe', fields: REC_FIELDS, vals: REC_DEFAULTS, lines: recLines([]), live: recPreview,
-      onSave: (v, items) => { if (!items.length) { toast('Add at least one ingredient'); return false; } db.recipes.push({ id: uid(), ...v, items: asItems(items), version: 1, updated: today(), history: [] }); } });
-  },
-  editRec(id) {
-    const r = rec(id);
-    openForm({ title: `Edit ${r.name}`, fields: REC_FIELDS, vals: r, lines: recLines(r.items), live: recPreview,
-      note: 'Saving creates a new version. Earlier versions stay in the history and on the batches that used them.',
-      onSave: (v, items) => {
-        if (!items.length) { toast('Add at least one ingredient'); return false; }
-        r.history.push({ version: r.version, date: r.updated || today(), snap: snapOf(r) });
-        Object.assign(r, v, { items: asItems(items), version: r.version + 1, updated: today() });
-        toast(`${r.name} saved as v${r.version}`);
-      } });
-  },
-  dupRec(id) {
-    const r = rec(id);
-    db.recipes.push({ ...JSON.parse(JSON.stringify(snapOf(r))), id: uid(), name: `${r.name} copy`, version: 1, updated: today(), history: [] });
-    toast(`${r.name} copied`);
-    commit();
-  },
-  scaleRec(id) {
-    const r = rec(id);
-    openForm({ title: `Scale ${r.name}`, vals: { size: r.size }, fields: [{ k: 'size', label: 'New batch size into fermenter (L)', type: 'number', req: 1 }],
-      note: 'Ingredients and losses scale in proportion. Mash thickness and packaging loss % stay the same. This saves a new version.',
-      onSave: v => {
-        if (!(v.size > 0)) { toast('Enter a batch size'); return false; }
-        const k = v.size / (r.size || 1);
-        r.history.push({ version: r.version, date: r.updated || today(), snap: snapOf(r) });
-        Object.assign(r, { size: v.size, boilLoss: +(r.boilLoss * k).toFixed(1), trubLoss: +(r.trubLoss * k).toFixed(1), fermLoss: +(r.fermLoss * k).toFixed(1), items: r.items.map(i => ({ ...i, qty: +(i.qty * k).toFixed(3) })), version: r.version + 1, updated: today() });
-        toast(`${r.name} scaled to ${num(v.size)} L as v${r.version}`);
-      } });
-  },
-  recBalance(id) {
-    const r = rec(id), c = recipeCalc(r), m = document.getElementById('modal');
-    m.innerHTML = `<div class="sheet"><div class="grabber"></div><div class="sheet-head"><span></span><h2>${esc(r.name)} mass balance</h2><button class="link strong" data-close>Done</button></div><div class="sheet-body">
-      ${massBalance(c)}<p class="note">Strike water ${num(c.mashWater, 0)} L, sparge ${num(c.sparge, 0)} L, brewhouse efficiency ${num(c.brewhouse, 0)}%. Extract kg = litres × gravity × °Plato ÷ 100, solved at every step.</p></div></div>`;
-    m.querySelector('[data-close]').onclick = () => m.close();
-    m.showModal();
-  },
-  recHistory(id) {
-    const r = rec(id), m = document.getElementById('modal');
-    m.innerHTML = `<div class="sheet"><div class="grabber"></div><div class="sheet-head"><span></span><h2>${esc(r.name)} history</h2><button class="link strong" data-close>Done</button></div><div class="sheet-body">
-      ${[{ version: r.version, date: r.updated, snap: snapOf(r), now: 1 }, ...[...r.history].reverse()].map(h => {
-        const c = recipeCalc({ ...REC_DEFAULTS, ...h.snap });
-        return `<h3>v${h.version}${h.now ? ' (current)' : ''} · ${fmtDate(h.date)}</h3><div class="metrics">${metric(sg(c.og), 'OG')}${metric(num(c.abv) + '%', 'ABV')}${metric(num(c.ibu, 0), 'IBU')}${metric(num(c.sellable, 0) + ' L', 'sellable')}${metric(inr(c.costL), 'per litre')}</div>
-          <p class="ingr">${h.snap.items.map(i => `${esc(mat(i.id)?.name || '?')} ${num(i.qty, 2)}${i.time !== '' ? ` @${i.time} min` : ''}`).join(' · ')}</p>`;
-      }).join('')}</div></div>`;
-    m.querySelector('[data-close]').onclick = () => m.close();
-    m.showModal();
-  },
-  delRec(id) {
-    if (db.batches.some(b => b.recipeId === id)) return toast('Batches use this recipe, so it cannot be deleted');
-    remove('recipes', id, 'recipe');
-  },
 
   newPack() {
     const ready = db.batches.filter(b => ['Conditioning', 'Ready'].includes(b.status));

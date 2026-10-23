@@ -66,6 +66,10 @@ After editing any file in `js` or `css`, run `npm run stamp`. It stamps each fil
 
 The tank view and fermentation readings take their lead from [Brewery Pi](https://github.com/brewerypi/brewerypi) by Deschutes Brewery (MIT licence). The feature scope follows what brewery ERPs such as Worter describe publicly. No code from either is used here. QR codes are drawn with [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (MIT).
 
+## Made by
+
+Brewhouse ERP is made by [Ankur Napa](https://www.linkedin.com/in/ankur-napa). Facing difficulty? Let's schedule a call: [napaankur@gmail.com](mailto:napaankur@gmail.com?subject=Brewhouse%20ERP%3A%20let%27s%20schedule%20a%20call).
+
 ## Licence
 
 MIT

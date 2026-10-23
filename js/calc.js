@@ -59,6 +59,29 @@ export function recipeCalc(r) {
   };
 }
 
+// A recipe as it stood at a given version: current fields, overlaid with that version's snapshot.
+export function recipeAt(r, version) {
+  if (!r || !version || version === r.version) return r;
+  const h = r.history.find(x => x.version === version);
+  return h ? { ...r, ...h.snap, version, history: [] } : r;
+}
+// Strike water temperature for the first rest, grain at 20°C (metric form of Palmer's infusion equation).
+export const strikeTemp = (r, grainTemp = 20) => (r.mash[0] ? (0.41 / (r.liquor || 2.8)) * (r.mash[0].temp - grainTemp) + r.mash[0].temp : 0);
+export const mashMinutes = mash => sum(mash, x => x.mins);
+// How a recipe has actually brewed: count, litres and actual against target.
+export function recipeStats(r) {
+  const bs = db.batches.filter(b => b.recipeId === r.id && b.issued).sort((a, b) => b.date.localeCompare(a.date));
+  const withOg = bs.filter(b => +b.brew.og || b.og);
+  const target = b => recipeCalc(recipeAt(r, b.recipeVersion)).og;
+  return {
+    batches: bs, count: bs.length, litres: sum(bs, b => b.volume), last: bs[0]?.date || '',
+    ogGap: withOg.length ? sum(withOg, b => ((+b.brew.og || b.og) - target(b)) * 1000) / withOg.length : null,
+    eff: withOg.length ? sum(withOg, efficiency) / withOg.length : null,
+    loss: bs.length ? sum(bs, b => lossBalance(b).pct) / bs.length : null,
+    byVersion: bs.reduce((a, b) => ({ ...a, [b.recipeVersion]: (a[b.recipeVersion] || 0) + 1 }), {}),
+  };
+}
+
 // ---------- batches ----------
 export const issueList = (r, volume) => r.items.map(i => {
   const qty = +(i.qty * volume / (r.size || 1)).toFixed(3);
@@ -76,10 +99,10 @@ export const packedL = p => p.units * p.unitL;
 export const batchPackedL = b => sum(db.packs.filter(p => p.batchId === b.id), packedL);
 
 export function deviations(b) {
-  const r = rec(b.recipeId), w = b.brew, out = [];
+  const r = recipeAt(rec(b.recipeId), b.recipeVersion), w = b.brew, out = [];
   if (!r) return out;
   const t = recipeCalc(r);
-  if (w.mashTemp !== '' && Math.abs(w.mashTemp - 66) > 1.5) out.push(`Mash ${w.mashTemp}°C vs 66°C`);
+  r.mash.forEach((m, i) => { const a = (w.steps || [])[i]; if (a !== '' && a != null && Math.abs(a - m.temp) > 1.5) out.push(`${m.step} ${a}°C vs ${m.temp}°C`); });
   if (w.og !== '' && Math.abs(w.og - t.og) > 0.004) out.push(`OG ${(+w.og).toFixed(3)} vs ${t.og.toFixed(3)}`);
   if (w.volume !== '' && Math.abs(w.volume - b.volume) / (b.volume || 1) > 0.05) out.push(`Volume ${w.volume} L vs ${b.volume} L`);
   if (w.volume !== '' && Math.abs(w.volume - r.size) / (r.size || 1) > 0.05) out.push(`Volume ${w.volume} L vs recipe ${r.size} L`);

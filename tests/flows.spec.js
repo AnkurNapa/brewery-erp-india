@@ -43,7 +43,10 @@ test('3 recipe: live calculation and versions', async ({ page }) => {
   await page.locator('[data-act="editRec"]').first().click();
   await expect(page.locator('#modal .preview')).toContainText('OG');
   await sheet(page);
+  await expect(page.locator('#modal[open]')).toBeVisible();
+  await sheet(page, { note: 'More late hops' });
   expect(await db(page, d => d.recipes[0].version)).toBe(3);
+  expect(await db(page, d => d.recipes[0].note)).toBe('More late hops');
   expect(await db(page, d => d.recipes[0].history.length)).toBe(2);
 });
 
@@ -62,7 +65,7 @@ test('5 brew day: issue stock, close task, flag deviations', async ({ page }) =>
     const s = await import('/js/store.js'), brew = await import('/js/views/brew.js'), c = await import('/js/calc.js');
     const b = s.db.batches.at(-1), pale = s.db.materials.find(m => m.name === 'Pale malt'), q0 = pale.qty;
     brew.setStatus(b.id, 'Brewing');
-    b.brew = { mashTemp: 70, preBoil: '', og: 1.040, volume: 500, pitchTemp: 18, notes: '' };
+    b.brew = { mashTemp: '', steps: [70], preBoil: '', og: 1.040, volume: 500, pitchTemp: 18, notes: '' };
     return { issued: b.issued, used: q0 - pale.qty, task: s.db.tasks.find(k => k.title.includes(`(${b.code})`)).status, dev: c.deviations(b).length };
   });
   expect(r.issued).toBe(true);
@@ -293,4 +296,58 @@ test('25 old data: extract points and malt minutes migrate', async ({ page }) =>
     return { extract: d.materials[0].extract, malt: d.recipes[0].items[0].use + ':' + d.recipes[0].items[0].time, hop: d.recipes[0].items[2].use };
   });
   expect(r).toEqual({ extract: 80.3, malt: 'Mash:', hop: 'Boil' });
+});
+
+test('26 mash profile: steps drive the brew log and flag deviations', async ({ page }) => {
+  await fresh(page, 'recipes');
+  expect(await run(page, async () => { const s = await import('/js/store.js'), c = await import('/js/calc.js'); return c.deviations(s.db.batches.find(b => b.code === 'B-003')); })).toContain('Beta amylase rest 60.5°C vs 63°C');
+  const ipa = await db(page, d => d.recipes[0].id);
+  await go(page, 'recipe/' + ipa);
+  await page.getByRole('button', { name: 'Edit mash profile' }).click();
+  await page.locator('#modal [data-addline]').click();
+  const last = page.locator('#modal .lines tbody tr').last();
+  await last.locator('select[name="l_id"]').selectOption('Protein rest');
+  await expect(last.locator('input[name="l_temp"]')).toHaveValue('50');
+  await sheet(page);
+  expect(await db(page, d => d.recipes[0].mash.map(m => m.step).join(','))).toBe('Saccharification,Mash out,Protein rest');
+  expect(await db(page, d => d.recipes[0].version)).toBe(3);
+  await go(page, 'batches');
+  await page.locator('tr', { hasText: 'B-004' }).getByRole('button', { name: 'Brew log' }).click();
+  await expect(page.locator('#modal')).toContainText('Saccharification actual °C (target 66°C, 60 min)');
+});
+
+test('27 times brewed: the recipe page counts batches by version', async ({ page }) => {
+  await fresh(page, 'recipes');
+  await expect(page.locator('.recipe').first()).toContainText('Brewed 2 times');
+  await page.locator('.recipe h3 a').first().click();
+  await expect(page.locator('.kpi.hero b')).toHaveText('2');
+  await expect(page.locator('main')).toContainText('Crystal 60 cut from 10 to 8 kg');
+});
+
+test('28 versions: compare with current, restore as a new version', async ({ page }) => {
+  await fresh(page, 'recipes');
+  await page.locator('.recipe h3 a').first().click();
+  await page.getByRole('button', { name: 'Compare with current' }).click();
+  await expect(page.locator('table.compare tr.diff').first()).toBeVisible();
+  await page.locator('[data-back]').click();
+  await page.getByRole('button', { name: 'Restore' }).click();
+  const r = await db(page, d => ({ v: d.recipes[0].version, note: d.recipes[0].note, crystal: d.recipes[0].items.find(i => d.materials.find(m => m.id === i.id).name === 'Crystal 60').qty }));
+  expect(r).toEqual({ v: 3, note: 'Restored from v1', crystal: 10 });
+});
+
+test('29 compare recipes: pick two, see the differences', async ({ page }) => {
+  await fresh(page, 'recipes');
+  await page.locator('.pick input').nth(0).click();
+  await page.locator('.pick input').nth(2).click();
+  await page.getByRole('button', { name: 'Compare 2' }).click();
+  await expect(page.locator('main h1')).toHaveText('Compare recipes');
+  await expect(page.locator('table.compare thead th')).toHaveCount(3);
+  await expect(page.locator('table.compare tr.diff', { hasText: 'Original gravity' })).toBeVisible();
+});
+
+test('30 credit: maker, LinkedIn and a way to book a call', async ({ page }) => {
+  await fresh(page, 'help');
+  await expect(page.locator('.credit a[href*="linkedin.com/in/ankur-napa"]')).toHaveText('Ankur Napa');
+  await expect(page.locator('.credit a[href^="mailto:napaankur@gmail.com?subject"]')).toContainText('schedule a call');
+  await expect(page.locator('main')).toContainText("Facing difficulty? Let's schedule a call.");
 });

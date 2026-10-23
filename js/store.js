@@ -27,13 +27,15 @@ const IDS = v => (Array.isArray(v) ? v.map(ID) : []);
 
 export const USES = ['Mash', 'Boil', 'Whirlpool', 'Dry hop', 'Pitch', 'Fermenter'];
 const LINE = { id: ID, qty: NUM, price: NUM, time: OPT, use: ONE(['', ...USES]) };
-const RSNAP = { name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, items: LIST(LINE) };
+export const MASH_STEPS = ['Acid rest', 'Protein rest', 'Beta amylase rest', 'Saccharification', 'Alpha amylase rest', 'Mash out'];
+const MASH = LIST({ step: ONE(MASH_STEPS), temp: NUM, mins: NUM });
+const RSNAP = { name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, items: LIST(LINE), mash: MASH, note: STR };
 const SCHEMA = {
   materials: {
     id: ID, name: STR, type: STR, unit: STR, qty: NUM, reorder: NUM, cost: NUM, extract: NUM, ebc: NUM, alpha: NUM, atten: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), vendorId: ID,
     lots: LIST({ id: ID, date: DATE, qty: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), cost: NUM, ref: STR }),
   },
-  recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
+  recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, mash: MASH, note: STR, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
   products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM },
   tanks: { id: ID, name: STR, type: STR, capacity: NUM, hygiene: ONE(HYGIENE), cleanedOn: DATE },
   batches: {
@@ -41,7 +43,7 @@ const SCHEMA = {
     readyDate: DATE, dutyRate: NUM, dutyL: NUM, issued: BOOL,
     transfers: LIST({ date: DATE, fromId: ID, toId: ID, litresOut: NUM, litresIn: NUM }), issues: LIST({ id: ID, qty: NUM, cost: NUM }),
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
-    brew: obj({ mashTemp: OPT, preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
+    brew: obj({ mashTemp: OPT, steps: v => (Array.isArray(v) ? v.map(OPT) : []), preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
   sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM }) },
   kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE },
@@ -85,7 +87,12 @@ export function clean(d) {
     r.history.forEach(h => h.snap.items.forEach(fixLine));
     if (d?.recipes?.[i]?.fermLoss == null) r.fermLoss = +(r.size * 0.03).toFixed(1);
     r.liquor ||= 2.8;
+    const single = [{ step: 'Saccharification', temp: 66, mins: 60 }, { step: 'Mash out', temp: 76, mins: 10 }];
+    if (!r.mash.length) r.mash = single;
+    r.history.forEach(h => { if (!h.snap.mash.length) h.snap.mash = r.mash; });
   });
+  // Older brew logs kept one mash temperature: it becomes the first step's actual.
+  for (const b of out.batches) if (!b.brew.steps.length && b.brew.mashTemp !== '') b.brew.steps = [b.brew.mashTemp];
   return out;
 }
 export const isBackup = d => d && typeof d === 'object' && d.settings && Array.isArray(d.batches);

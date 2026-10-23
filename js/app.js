@@ -9,8 +9,9 @@ import * as sales from './views/sales.js';
 import * as records from './views/records.js';
 import * as control from './views/control.js';
 import * as help from './views/help.js';
+import * as recipes from './views/recipes.js';
 
-const MODULES = [home, brew, stores, sales, control, records, help];
+const MODULES = [home, brew, recipes, stores, sales, control, records, help];
 const VIEWS = Object.assign({}, ...MODULES.map(m => m.views));
 const ACTIONS = Object.assign({}, ...MODULES.map(m => m.actions));
 const SEGS = Object.assign({}, ...MODULES.map(m => m.segs || {}));
@@ -33,7 +34,7 @@ const ICON = {
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
 };
 // Detail screens get an iOS style back button to their parent list.
-const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'] };
+const PARENT = { blr: ['batches', 'Batches'], scan: ['equipment', 'Equipment'], count: ['stocktake', 'Stock take'], recipe: ['recipes', 'Recipes'], compare: ['recipes', 'Recipes'] };
 let depth = 0, prev = null, cur = null;
 const TITLES = Object.fromEntries(NAV.flatMap(([, items]) => items));
 const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
@@ -46,7 +47,7 @@ function route() {
 function draw() {
   if (brew.settle()) persist();
   const { view, arg } = route(), n = alerts().length;
-  const active = { blr: 'batches', scan: 'equipment', count: 'stocktake' }[view] || view;
+  const active = { blr: 'batches', scan: 'equipment', count: 'stocktake', recipe: 'recipes', compare: 'recipes' }[view] || view;
   $('brand').textContent = db.settings.name;
   $('sidenav').innerHTML = NAV.map(([g, items]) => `<p class="group">${g}</p>${items.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${t}${k === 'dash' && n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}`).join('');
   $('tabbar').innerHTML = TABS.map(([k, t]) => `<a href="#${k}" ${k === active ? 'aria-current="page"' : ''}>${svg(k)}<span>${t}</span></a>`).join('')
@@ -90,7 +91,7 @@ function search(q) {
     ...db.kegs.filter(k => hit(k.code)).map(k => [`#scan/${encodeURIComponent(k.code)}`, k.code, 'Keg']),
     ...db.tanks.filter(k => hit(k.name)).map(() => ['#tanks', 'Tanks', 'Tank']).slice(0, 1),
     ...db.materials.filter(m => hit(m.name)).map(m => ['#materials', m.name, 'Material']),
-    ...db.recipes.filter(x => hit(x.name, x.style)).map(x => ['#recipes', x.name, 'Recipe']),
+    ...db.recipes.filter(x => hit(x.name, x.style)).map(x => [`#recipe/${x.id}`, x.name, 'Recipe']),
     ...db.customers.filter(c => hit(c.name, c.city)).map(c => ['#partners', c.name, 'Customer']),
     ...db.sales.filter(s => hit(s.no, s.customer)).slice(-5).map(s => ['#sales', `${s.no} ${s.customer}`, 'Invoice']),
     ...db.counts.filter(c => hit(c.no)).map(c => [`#count/${c.id}`, c.no, 'Stock take']),

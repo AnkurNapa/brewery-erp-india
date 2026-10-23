@@ -187,6 +187,19 @@ tr.flag td { background: var(--orange-t); }
 .help-step:last-child { border-bottom: 0; }
 .help-step .num { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-t); color: var(--blue); display: grid; place-items: center; font-weight: 600; font-size: 13px; flex: none; }
 
+.pick { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 32px; }
+.pick input { width: 18px; height: 18px; min-height: 0; accent-color: var(--blue); }
+.recipe h3 a { color: var(--ink); } .recipe h3 a:hover { color: var(--blue); }
+.brewed { margin: 0; font-size: 14px; color: var(--muted); } .brewed b { color: var(--ink); }
+.mash-chart { width: 100%; height: 90px; background: var(--card2); border-radius: 10px; margin-bottom: 8px; }
+.mash-label { font: 600 11px var(--font); fill: var(--muted); }
+table.compare td:first-child { color: var(--muted); }
+table.compare tr.diff td { background: var(--blue-t); } table.compare tr.diff td:first-child { color: var(--ink); font-weight: 600; }
+table.compare tr.sec td { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: none; padding-top: 18px; }
+.dot-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.credit { margin: 24px 12px 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.7; color: var(--muted); }
+.contact { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+
 /* ---------- calendar ---------- */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .dow { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; padding: 4px 0; }

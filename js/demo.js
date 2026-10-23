@@ -31,15 +31,16 @@ export function demo() {
     m('Peracetic sanitiser', 'Chemical', 'L', 4, 5, 450, { vendorId: vGas }),
   ];
   const M = n => materials.find(x => x.name.startsWith(n)).id;
-  const r = (name, style, items, version = 1, history = []) => ({
+  const step = (st, temp, mins) => ({ step: st, temp, mins });
+  const r = (name, style, items, mash, version = 1, history = [], note = 'First version') => ({ mash, note,
     id: uid(), name, style, size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3, version, updated: daysAgo(40), history,
     items: items.map(([n, qty, time = '', use = '']) => ({ id: M(n), qty, price: 0, time, use })),
   });
   const ipaItems = [['Pale malt', 130], ['Crystal 60', 8], ['Cascade', 1.5, 60], ['Cascade', 1.5, 10], ['Citra', 1.5, '', 'Dry hop'], ['US-05', 1]];
   const recipes = [
-    r('Indiranagar IPA', 'American IPA', ipaItems, 2, [{ version: 1, date: daysAgo(90), snap: { name: 'Indiranagar IPA', style: 'American IPA', size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3, items: ipaItems.map(([n, qty, time = '', use = '']) => ({ id: M(n), qty: n === 'Crystal 60' ? 10 : qty, price: 0, time, use })) } }]),
-    r('Monsoon Wit', 'Witbier', [['Pale malt', 55], ['Wheat malt', 55], ['Saaz', 1, 60], ['Coriander', 0.5, 5], ['Orange peel', 0.5, 5], ['WB-06', 1]]),
-    r('Helles Lager', 'Munich Helles', [['Pale malt', 100], ['Munich malt', 20], ['Saaz', 1.5, 60], ['Saaz', 1, 15], ['W-34/70', 2]]),
+    r('Indiranagar IPA', 'American IPA', ipaItems, [step('Saccharification', 66, 60), step('Mash out', 76, 10)], 2, [{ version: 1, date: daysAgo(90), snap: { name: 'Indiranagar IPA', style: 'American IPA', size: 500, liquor: 2.8, boilLoss: 40, trubLoss: 20, fermLoss: 15, packLoss: 3, note: 'First version', mash: [step('Saccharification', 67, 60), step('Mash out', 76, 10)], items: ipaItems.map(([n, qty, time = '', use = '']) => ({ id: M(n), qty: n === 'Crystal 60' ? 10 : qty, price: 0, time, use })) } }], 'Crystal 60 cut from 10 to 8 kg and mash a degree cooler for a paler, drier finish'),
+    r('Monsoon Wit', 'Witbier', [['Pale malt', 55], ['Wheat malt', 55], ['Saaz', 1, 60], ['Coriander', 0.5, 5], ['Orange peel', 0.5, 5], ['WB-06', 1]], [step('Protein rest', 50, 15), step('Saccharification', 65, 60), step('Mash out', 76, 10)]),
+    r('Helles Lager', 'Munich Helles', [['Pale malt', 100], ['Munich malt', 20], ['Saaz', 1.5, 60], ['Saaz', 1, 15], ['W-34/70', 2]], [step('Beta amylase rest', 63, 30), step('Alpha amylase rest', 72, 30), step('Mash out', 78, 10)]),
   ];
   const [ipa, wit, helles] = recipes;
   const cost = id => materials.find(x => x.id === id).cost;
@@ -51,13 +52,13 @@ export function demo() {
   const curve = (start, og, fg, days, temp) => Array.from({ length: days }, (_, i) => ({ date: daysAgo(start - i), gravity: +(fg + (og - fg) * Math.exp(-i / 2.2)).toFixed(3), temp, ph: i === 0 ? 5.2 : '', note: i === 0 ? 'Pitched' : '' }));
   const b = (code, rc, date, status, volume, og, fg, tank, extra = {}) => ({
     id: uid(), code, recipeId: rc.id, recipeVersion: rc.version, date, status, volume, og, fg, tankId: T(tank), notes: '', readyDate: '', dutyRate: 0, dutyL: 0, transfers: [],
-    issued: status !== 'Planned', issues: status !== 'Planned' ? issues(rc, volume) : [], log: [], brew: { mashTemp: '', preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' }, ...extra,
+    issued: status !== 'Planned', issues: status !== 'Planned' ? issues(rc, volume) : [], log: [], brew: { mashTemp: '', steps: [], preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' }, ...extra,
   });
   const batches = [
-    b('B-001', ipa, daysAgo(34), 'Ready', 500, 1.058, 1.013, 'BBT-1', { readyDate: daysAgo(14), dutyRate: 50, dutyL: 486, transfers: [{ date: daysAgo(16), fromId: T('FV-1'), toId: T('BBT-1'), litresOut: 492, litresIn: 486 }], log: curve(33, 1.058, 1.013, 12, 19), brew: { mashTemp: 66.5, preBoil: 1.049, og: 1.058, volume: 500, pitchTemp: 18, notes: 'Smooth brew day' } }),
-    b('B-002', wit, daysAgo(18), 'Ready', 495, 1.049, 1.012, 'BBT-2', { readyDate: daysAgo(3), dutyRate: 50, dutyL: 483, transfers: [{ date: daysAgo(4), fromId: T('FV-3'), toId: T('BBT-2'), litresOut: 488, litresIn: 483 }], log: curve(17, 1.049, 1.012, 10, 20), brew: { mashTemp: 67, preBoil: 1.042, og: 1.049, volume: 495, pitchTemp: 19, notes: '' } }),
-    b('B-003', helles, daysAgo(10), 'Conditioning', 505, 1.052, 1.010, 'FV-2', { log: curve(9, 1.052, 1.010, 10, 11), brew: { mashTemp: 64, preBoil: 1.045, og: 1.052, volume: 505, pitchTemp: 10, notes: 'Mash ran cold, HLT element tripped' } }),
-    b('B-004', ipa, daysAgo(3), 'Fermenting', 480, 1.053, 1.013, 'FV-1', { log: curve(2, 1.053, 1.013, 3, 19), brew: { mashTemp: 66, preBoil: 1.045, og: 1.053, volume: 480, pitchTemp: 18, notes: 'Short on volume, sparge stuck' } }),
+    b('B-001', ipa, daysAgo(34), 'Ready', 500, 1.058, 1.013, 'BBT-1', { readyDate: daysAgo(14), dutyRate: 50, dutyL: 486, transfers: [{ date: daysAgo(16), fromId: T('FV-1'), toId: T('BBT-1'), litresOut: 492, litresIn: 486 }], log: curve(33, 1.058, 1.013, 12, 19), brew: { mashTemp: '', steps: [66.5, 76], preBoil: 1.049, og: 1.058, volume: 500, pitchTemp: 18, notes: 'Smooth brew day' } }),
+    b('B-002', wit, daysAgo(18), 'Ready', 495, 1.049, 1.012, 'BBT-2', { readyDate: daysAgo(3), dutyRate: 50, dutyL: 483, transfers: [{ date: daysAgo(4), fromId: T('FV-3'), toId: T('BBT-2'), litresOut: 488, litresIn: 483 }], log: curve(17, 1.049, 1.012, 10, 20), brew: { mashTemp: '', steps: [51, 65.5, 76], preBoil: 1.042, og: 1.049, volume: 495, pitchTemp: 19, notes: '' } }),
+    b('B-003', helles, daysAgo(10), 'Conditioning', 505, 1.052, 1.010, 'FV-2', { log: curve(9, 1.052, 1.010, 10, 11), brew: { mashTemp: '', steps: [60.5, 71, 77], preBoil: 1.045, og: 1.052, volume: 505, pitchTemp: 10, notes: 'Mash ran cold, HLT element tripped' } }),
+    b('B-004', ipa, daysAgo(3), 'Fermenting', 480, 1.053, 1.013, 'FV-1', { log: curve(2, 1.053, 1.013, 3, 19), brew: { mashTemp: '', steps: [66, 75.5], preBoil: 1.045, og: 1.053, volume: 480, pitchTemp: 18, notes: 'Short on volume, sparge stuck' } }),
     b('B-005', wit, ahead(4), 'Planned', 500, 0, 0, 'FV-3'),
   ];
   const B = c => batches.find(x => x.code === c).id;
