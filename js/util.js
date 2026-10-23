@@ -1,0 +1,27 @@
+// Small shared helpers. No DOM state lives here apart from the toast.
+const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+
+export const uid = () => Math.random().toString(36).slice(2, 9);
+export const today = () => iso(new Date());
+export const addDays = (date, d) => iso(new Date(new Date(date + 'T12:00').getTime() + d * 864e5));
+export const daysAgo = d => addDays(today(), -d);
+export const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
+export const pad = (n, w) => String(n).padStart(w, '0');
+export const sum = (arr, f = x => x) => arr.reduce((a, x) => a + (+f(x) || 0), 0);
+export const abv = (og, fg) => (og - fg) * 131.25;
+export const $ = id => document.getElementById(id);
+
+export const inr = n => '₹' + (+n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const inr0 = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
+export const num = (n, d = 1) => (+n || 0).toLocaleString('en-IN', { maximumFractionDigits: d });
+export const sg = n => (+n || 0).toFixed(3);
+export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const fmtDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
+
+export function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('on'), 2800);
+}
