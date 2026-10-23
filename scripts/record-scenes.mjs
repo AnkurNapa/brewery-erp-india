@@ -1,0 +1,144 @@
+// Records real-time screen recordings of the app for the launch videos.
+// Usage: node scripts/record-scenes.mjs <outDir> <desktop|phone> [sceneName]
+// Each scene is a fresh browser with the demo brewpub, played at human speed, held for its voice line.
+import { chromium } from '@playwright/test';
+import { spawn } from 'node:child_process';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+const [out, mode, only] = process.argv.slice(2);
+const phone = mode === 'phone';
+// Chrome's screencast streams frames at device pixels, so these give a true 1920x1080 and 1170x2532.
+const VIEW = phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, size: { width: 1170, height: 2532 } }
+  : { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1.2, size: { width: 1920, height: 1080 } };
+const FFMPEG = process.env.FFMPEG || `${process.env.HOME}/bin/ffmpeg`;
+const server = spawn('python3', ['-m', 'http.server', '4175'], { stdio: 'ignore' });
+await new Promise(r => setTimeout(r, 800));
+const BASE = 'http://localhost:4175/';
+
+// A visible pointer and click ripple, because headless recordings show no cursor.
+const CURSOR = `addEventListener('DOMContentLoaded', () => {
+  const c = document.createElement('div');
+  c.style.cssText = 'position:fixed;z-index:99999;left:0;top:0;width:${phone ? 34 : 22}px;height:${phone ? 34 : 22}px;margin:-${phone ? 17 : 11}px 0 0 -${phone ? 17 : 11}px;border-radius:50%;background:rgba(0,0,0,.28);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);pointer-events:none;transition:transform .12s;opacity:${phone ? 0 : 1}';
+  document.body.appendChild(c);
+  // An open modal dialog sits in the top layer, so the pointer has to live inside it to stay visible.
+  const host = () => document.querySelector('dialog[open]') || document.body;
+  const at = e => { if (c.parentNode !== host()) host().appendChild(c); c.style.left = e.clientX + 'px'; c.style.top = e.clientY + 'px'; };
+  addEventListener('pointermove', at, true);
+  addEventListener('pointerdown', e => {
+    at(e); c.style.opacity = 1; c.style.transform = 'scale(.7)';
+    const r = document.createElement('div');
+    r.style.cssText = 'position:fixed;z-index:99998;left:' + e.clientX + 'px;top:' + e.clientY + 'px;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;border:3px solid #007aff;pointer-events:none;transition:all .45s ease-out;opacity:1';
+    host().appendChild(r);
+    requestAnimationFrame(() => { r.style.transform = 'scale(5)'; r.style.opacity = 0; });
+    setTimeout(() => r.remove(), 500);
+  }, true);
+  addEventListener('pointerup', () => { c.style.transform = 'scale(1)'; ${phone ? "setTimeout(() => { c.style.opacity = 0; }, 350);" : ''} }, true);
+});`;
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function helpers(p) {
+  const point = async (target, { click = true } = {}) => {
+    const loc = typeof target === 'string' ? p.locator(target).first() : target;
+    await loc.scrollIntoViewIfNeeded();
+    const b = await loc.boundingBox();
+    const x = b.x + b.width / 2, y = b.y + b.height / 2;
+    if (phone) { if (click) { await p.touchscreen.tap(x, y); await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.up(); } return; }
+    await p.mouse.move(x, y, { steps: 28 });
+    await wait(180);
+    if (click) { await p.mouse.down(); await wait(90); await p.mouse.up(); }
+  };
+  const tap = async target => {
+    if (!phone) return point(target);
+    const loc = typeof target === 'string' ? p.locator(target).first() : target;
+    await loc.scrollIntoViewIfNeeded();
+    const b = await loc.boundingBox();
+    await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await p.mouse.down(); await wait(80); await p.mouse.up();
+  };
+  const type = async (sel, text) => { const el = p.locator(sel).first(); await tap(el); await el.fill(''); await el.pressSequentially(text, { delay: 140 }); };
+  const scroll = async (dy, steps = 30) => { for (let i = 0; i < steps; i++) { await p.mouse.wheel(0, dy / steps); await wait(28); } };
+  const swipe = async dy => { await p.evaluate(async d => { const s = document.scrollingElement; const end = s.scrollTop + d; for (let i = 0; i < 40; i++) { s.scrollTop += d / 40; await new Promise(r => setTimeout(r, 18)); } s.scrollTop = end; }, dy); };
+  const go = async hash => { await p.evaluate(h => { location.hash = h; }, hash); await wait(350); };
+  const more = async label => {
+    await tap('[data-more]');
+    await wait(500);
+    // Items low in the phone drawer need the drawer scrolled before they can be tapped.
+    await p.evaluate(l => [...document.querySelectorAll('#sidenav a')].find(a => a.textContent.trim().startsWith(l)).scrollIntoView({ block: 'center' }), label);
+    await wait(700);
+    // hasText matches substrings case-insensitively ("CIP" would hit "Recipes"), so anchor it.
+    const b = await p.locator('#sidenav a').filter({ hasText: new RegExp('^' + label) }).first().boundingBox();
+    await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await p.mouse.down(); await wait(80); await p.mouse.up();
+    await wait(400);
+  };
+  return { point, tap, type, scroll: phone ? swipe : scroll, go, more };
+}
+
+const DESKTOP = {
+  s01: async (p, h) => { await wait(600); await h.point('.kpi.hero', { click: false }); await wait(700); await h.point('.list li a', { click: false }); await wait(900); await h.point('.floor-tank >> nth=1', { click: false }); },
+  s02: async (p, h) => { await h.point('#sidenav a[href="#tanks"]'); await wait(700); await h.point('.tank .curve', { click: false }); await wait(800); await h.point('.tank >> nth=4', { click: false }); },
+  s03: async (p, h) => { await h.go('recipes'); await wait(400); await h.point('[data-act="editRec"]'); await wait(700); await h.type('#modal [name="l_qty"]', '140'); await wait(600); await p.evaluate(() => document.querySelector('#modal .preview').scrollIntoView({ behavior: 'smooth' })); await wait(1400); await h.point('#modal .preview .metrics', { click: false }); },
+  s04: async (p, h) => { await h.go('recipes'); await wait(300); await h.point('.recipe h3 a'); await wait(900); await h.point('.kpi.hero', { click: false }); await wait(500); await h.scroll(900); },
+  s05: async (p, h) => { await h.go('recipes'); await wait(300); await h.point('.pick input >> nth=0'); await wait(300); await h.point('.pick input >> nth=2'); await wait(400); await h.point('[data-act="go"][data-id^="compare"]'); await wait(900); await h.scroll(300); },
+  s06: async (p, h) => { await h.go('batches'); await wait(400); await h.point(p.locator('a.code', { hasText: 'B-001' })); await wait(900); await h.scroll(700); },
+  s07: async (p, h) => { await h.go('cip'); await wait(500); await h.point(p.locator('tr', { hasText: 'FV-3' }).locator('[data-act="logCip"]')); await wait(900); await h.point('#modal .sheet-head button.strong'); await wait(600); },
+  s08: async (p, h) => { await h.go('losses'); await wait(500); await h.point('[data-seg="lossWindow"][data-v="90"]'); await wait(700); await h.point('.panel .bar', { click: false }); },
+  s09: async (p, h) => { await h.go('stocktake'); await wait(400); await h.point('[data-act="newCount"]'); await wait(700); await h.type('.count-in >> nth=0', '615'); await wait(300); await h.point('[data-seg="countMode"][data-v="review"]'); await wait(800); },
+  s10: async (p, h) => { await h.go('dispatch'); await wait(500); await h.point('.collect [data-act="kegPickup"]'); await wait(900); await h.point('[data-act="newDispatch"]', { click: false }); },
+  s11: async (p, h) => { await h.go('tax'); await wait(500); await h.point('table', { click: false }); await wait(500); await h.scroll(500); await wait(300); await h.point('[data-act="csvTax"]', { click: false }); },
+  s12: async (p, h) => { await h.go('setup'); await wait(500); await h.point('.template >> nth=1', { click: false }); await wait(600); await h.scroll(600); },
+};
+const PHONE = {
+  p01: async (p, h) => { await wait(700); await h.scroll(500); await wait(500); await h.scroll(-500); },
+  p02: async (p, h) => { await h.tap('#tabbar a[href="#tanks"]'); await wait(800); await h.scroll(700); },
+  p03: async (p, h) => { await h.more('Recipes'); await h.tap('[data-act="editRec"]'); await wait(700); await p.evaluate(() => document.querySelector('#modal .preview').scrollIntoView({ behavior: 'smooth' })); await wait(1500); },
+  p04: async (p, h) => { await h.tap('#tabbar a[href="#batches"]'); await wait(500); await h.tap(p.locator('a.code', { hasText: 'B-001' })); await wait(700); await h.scroll(900); },
+  p05: async (p, h) => { await h.more('CIP'); await wait(300); await h.scroll(500); await wait(400); await h.more('Beer losses'); },
+  p06: async (p, h) => { await h.more('Stock take'); await h.tap('[data-act="newCount"]'); await wait(600); await h.type('.count-in >> nth=0', '615'); },
+  p07: async (p, h) => { await h.more('Excise and tax'); await wait(400); await h.scroll(600); },
+  p08: async (p, h) => { await h.more('Help'); await wait(1200); },
+};
+
+const scenes = phone ? PHONE : DESKTOP;
+const durations = JSON.parse(process.env.SCENE_SECONDS || '{}');
+mkdirSync(out, { recursive: true });
+const browser = await chromium.launch();
+for (const [name, play] of Object.entries(scenes)) {
+  if (only && name !== only) continue;
+  const tmp = `${out}/tmp-${name}`;
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  const { size, ...ctxOpts } = VIEW;
+  const ctx = await browser.newContext(ctxOpts);
+  await ctx.addInitScript(CURSOR);
+  const p = await ctx.newPage();
+  p.on('dialog', d => d.accept());
+  await p.goto(BASE + '#dash');
+  await p.waitForSelector('main h1');
+  await wait(300);
+  // Stream frames with their timestamps; frames only arrive when the screen changes.
+  const cdp = await ctx.newCDPSession(p), frames = [];
+  cdp.on('Page.screencastFrame', async f => {
+    const file = `${tmp}/f${String(frames.length).padStart(5, '0')}.jpg`;
+    writeFileSync(file, Buffer.from(f.data, 'base64'));
+    frames.push({ file, t: f.metadata.timestamp });
+    await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+  });
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: size.width, maxHeight: size.height, everyNthFrame: 1 });
+  const t0 = Date.now();
+  await play(p, helpers(p));
+  const target = (durations[name] || 6) * 1000 + 600;
+  if (Date.now() - t0 < target) await wait(target - (Date.now() - t0));
+  await cdp.send('Page.stopScreencast');
+  const end = frames[0].t + (Date.now() - t0) / 1000;
+  await ctx.close();
+  // Each frame holds until the next one, then everything is resampled to a steady 30 fps.
+  const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? end) - f.t).toFixed(4)}`).join('\n') + `\nfile '${frames.at(-1).file}'\n`;
+  writeFileSync(`${tmp}/list.txt`, list);
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', `${tmp}/list.txt`, '-vf', `fps=30,scale=${size.width}:${size.height}:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-crf', '16', '-preset', 'medium', `${out}/${name}.mp4`]);
+  rmSync(tmp, { recursive: true, force: true });
+  console.log('recorded', name, ((Date.now() - t0) / 1000).toFixed(1), 's,', frames.length, 'frames');
+}
+await browser.close();
+server.kill();
