@@ -4,7 +4,7 @@ import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysBetween } fro
 import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
 import { parseLoc } from '../kegmap.js';
 import { periodSeg, periodText, inPeriod } from '../period.js';
-import { rec, prod, cust, keg, pack, invoice, packLeft, beerStock, removalDuty, beerLitres } from '../calc.js';
+import { rec, prod, cust, keg, pack, invoice, packLeft, beerStock, removalDutyOn } from '../calc.js';
 
 const remove = (coll, id, what) => { if (confirm(`Delete this ${what}?`)) { db[coll] = db[coll].filter(x => x.id !== id); commit(); } };
 let partnerTab = 'customers';
@@ -114,9 +114,9 @@ export const actions = {
         const short = beerStock().filter(s => need[s.r.id] > Math.max(0, s.draught) + 0.01).map(s => `${s.r.name} (${Math.max(0, s.draught).toFixed(1)} L on tap)`);
         if (short.length && !confirm(`Not enough beer on tap: ${short.join(', ')}.\nSave the invoice anyway?`)) return false;
         const c = db.customers.find(x => x.name === v.customer);
-        const saleLines = lines.map(l => ({ pid: l.id, kind: prod(l.id)?.kind, qty: l.qty }));
-        db.sales.push({ id: uid(), no: next('inv', db.settings.prefix || 'INV', 4), ...v, gstin: v.gstin || c?.gstin || '', vat: db.settings.vat, gst: db.settings.foodGst, dispatchId: '', duty: removalDuty(beerLitres(saleLines)),
-          lines: lines.map(l => { const p = prod(l.id); return { pid: p.id, name: p.name, kind: p.kind, qty: l.qty, price: l.price }; }) });
+        const saleLines = lines.map(l => ({ pid: l.id, kind: prod(l.id)?.kind, qty: l.qty, ml: prod(l.id)?.ml || 0, recipeId: prod(l.id)?.recipeId || '' }));
+        db.sales.push({ id: uid(), no: next('inv', db.settings.prefix || 'INV', 4), ...v, gstin: v.gstin || c?.gstin || '', vat: db.settings.vat, gst: db.settings.foodGst, dispatchId: '', duty: removalDutyOn(saleLines),
+          lines: lines.map(l => { const p = prod(l.id); return { pid: p.id, name: p.name, kind: p.kind, qty: l.qty, price: l.price, ml: p.ml, recipeId: p.recipeId }; }) });
         toast('Invoice saved');
       },
     });
@@ -137,7 +137,7 @@ export const actions = {
 
   newProd() { openForm({ title: 'Add menu item', fields: PROD_FIELDS(), vals: { kind: 'beer', ml: 330 }, onSave: v => { db.products.push({ id: uid(), ...v }); } }); },
   editProd(id) { const p = prod(id); openForm({ title: `Edit ${p.name}`, fields: PROD_FIELDS(), vals: p, onSave: v => { Object.assign(p, v); } }); },
-  delProd(id) { remove('products', id, 'menu item'); },
+  delProd(id) { if (db.sales.some(s => s.lines.some(l => l.pid === id))) return toast('This item is on past invoices, so it cannot be deleted. Rename it or change its price instead.'); remove('products', id, 'menu item'); },
 
   newDispatch(kegId) {
     const opts = dispatchOpts();
@@ -169,7 +169,7 @@ export const actions = {
           }
         }
         const c = cust(v.customerId), litres = lines.reduce((a, l) => a + l.litres, 0);
-        const d = { id: uid(), no: next('disp', 'D', 4), date: v.date, customerId: v.customerId, invoiceId: '', duty: removalDuty(litres), lines: lines.map(({ price, ...l }) => l) };
+        const d = { id: uid(), no: next('disp', 'D', 4), date: v.date, customerId: v.customerId, invoiceId: '', duty: removalDutyOn(lines), lines: lines.map(({ price, ...l }) => l) };
         if (v.invoice === 'yes') {
           const inv = { id: uid(), no: next('inv', db.settings.prefix || 'INV', 4), date: v.date, customer: c.name, gstin: c.gstin, vat: db.settings.vat, gst: db.settings.foodGst, dispatchId: d.id, duty: 0,
             lines: lines.map(l => ({ pid: '', name: l.label, kind: 'beer', qty: l.qty, price: l.price })) };

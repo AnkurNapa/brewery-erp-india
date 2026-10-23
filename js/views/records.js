@@ -5,7 +5,7 @@ import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, fie
 import { demo } from '../demo.js';
 import { consent, setConsent } from '../analytics.js';
 import { periodSeg, periodRange, periodText, inPeriod, periodFile } from '../period.js';
-import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp } from '../calc.js';
+import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp, exciseIn } from '../calc.js';
 
 const UTIL_TYPES = { Electricity: 'kWh', Water: 'kL', 'LPG / PNG': 'kg', CO2: 'kg', Diesel: 'L', Other: '' };
 let reportTab = 'business';
@@ -16,7 +16,7 @@ const REPORTS = {
     const range = periodRange(), sales = db.sales.filter(s => inPeriod(s.date, range));
     const rev = sum(sales, s => { const c = invoice(s); return c.beer + c.food; });
     const rm = sum(db.batches.filter(b => b.issued && inPeriod(b.date, range)), batchCost), util = sum(db.utilities.filter(u => inPeriod(u.date, range)), u => u.cost);
-    const exc = sum(db.batches.filter(b => inPeriod(b.readyDate, range)), duty), c = cogs(...range);
+    const exc = exciseIn(...range), c = cogs(...range);
     return `<div class="kpis four">${kpi(inr0(rev), `Revenue, ${periodText()}`)}${kpi(inr0(rm), 'Ingredients issued')}${kpi(inr0(util), 'Utilities')}${kpi(inr0(exc), 'Excise booked')}</div>`
       + panel('COGS per sellable litre', table(['Beer', { t: 'Ingredients', n: 1 }, { t: 'Utilities', n: 1 }, { t: 'Excise', n: 1 }, { t: 'Total cost', n: 1 }, { t: 'Avg price', n: 1 }, { t: 'Margin', n: 1 }],
         c.map(x => `<tr><td>${esc(x.r.name)}</td><td class="n">${inr(x.rm)}</td><td class="n">${inr(x.util)}</td><td class="n">${inr(x.exc)}</td><td class="n"><b>${inr(x.total)}</b></td><td class="n">${x.priceL ? inr(x.priceL) : ''}</td>
@@ -95,8 +95,8 @@ export const views = {
     const basis = db.settings.exciseBasis === 'Removal' ? 'on removal (each taproom pour and dispatch)' : 'when a batch is marked Ready';
     return head('Excise and tax', `Excise is booked at the Settings rate ${basis}. State: ${esc(db.settings.state)}.`, `${btn('Excise CSV', 'csvExcise', '', 'ghost')} ${btn('VAT and GST CSV', 'csvTax', '', 'ghost')}`)
       + panel('Excise register, booked at Ready', table(['Batch', 'Beer', 'Brewed', 'Ready', { t: 'Bulk litres', n: 1 }, { t: 'ABV', n: 1 }, { t: 'Rate / L', n: 1 }, { t: 'Duty', n: 1 }],
-        reg.map(b => `<tr><td class="code">${esc(b.code)}</td><td>${esc(rec(b.recipeId)?.name || '')}</td><td>${fmtDate(b.date)}</td><td>${fmtDate(b.readyDate)}</td><td class="n">${num(b.dutyL || b.volume)}</td><td class="n">${num(abv(b.og, b.fg))}%</td><td class="n">${inr(b.dutyRate)}</td><td class="n">${inr(duty(b))}</td></tr>`),
-        `<tfoot><tr><td colspan="4">Total</td><td class="n">${num(sum(reg, b => b.dutyL || b.volume))}</td><td></td><td></td><td class="n">${inr(sum(reg, duty))}</td></tr></tfoot>`))
+        reg.map(b => `<tr><td class="code">${esc(b.code)}</td><td>${esc(rec(b.recipeId)?.name || '')}</td><td>${fmtDate(b.date)}</td><td>${fmtDate(b.readyDate)}</td><td class="n">${num(b.dutyL)}</td><td class="n">${num(abv(b.og, b.fg))}%</td><td class="n">${inr(b.dutyRate)}</td><td class="n">${inr(duty(b))}</td></tr>`),
+        `<tfoot><tr><td colspan="4">Total</td><td class="n">${num(sum(reg, b => b.dutyL))}</td><td></td><td></td><td class="n">${inr(sum(reg, duty))}</td></tr></tfoot>`))
       + (removals.length || db.settings.exciseBasis === 'Removal' ? panel('Excise on removal', table(['Date', 'Kind', 'Ref', 'Customer', { t: 'Duty', n: 1 }], removals.map(x => `<tr><td>${fmtDate(x.date)}</td><td>${pill(x.kind, 'grey')}</td><td class="code">${esc(x.ref)}</td><td>${esc(x.who)}</td><td class="n">${inr(x.duty)}</td></tr>`),
         `<tfoot><tr><td colspan="4">Total</td><td class="n">${inr(sum(removals, x => x.duty))}</td></tr></tfoot>`)) : '')
       + panel('Monthly VAT and GST', table(['Month', { t: 'Beer sales', n: 1 }, { t: 'VAT', n: 1 }, { t: 'Food sales', n: 1 }, { t: 'CGST', n: 1 }, { t: 'SGST', n: 1 }],
@@ -152,7 +152,7 @@ export const actions = {
 
   csvExcise() {
     downloadCsv('excise-register', ['Basis', 'Date', 'Ref', 'Beer or customer', 'Bulk litres', 'Rate per litre', 'Duty'], [
-      ...db.batches.filter(b => b.readyDate && b.dutyRate).map(b => ['Ready', b.readyDate, b.code, rec(b.recipeId)?.name || '', b.dutyL || b.volume, b.dutyRate, +duty(b).toFixed(2)]),
+      ...db.batches.filter(b => b.readyDate && b.dutyRate).map(b => ['Ready', b.readyDate, b.code, rec(b.recipeId)?.name || '', b.dutyL, b.dutyRate, +duty(b).toFixed(2)]),
       ...db.sales.filter(x => x.duty).map(x => ['Removal', x.date, x.no, x.customer, '', db.settings.exciseRate, x.duty]),
       ...db.dispatches.filter(d => d.duty).map(d => ['Removal', d.date, d.no, cust(d.customerId)?.name || '', sum(d.lines, l => l.litres), db.settings.exciseRate, d.duty])]);
   },
@@ -184,7 +184,10 @@ export function importBackup(file) {
   file.text().then(t => {
     const d = JSON.parse(t);
     if (!isBackup(d)) throw new Error('not a backup');
+    // Numbers already handed out on this device are never issued again, even when an older backup comes back.
+    const issued = { ...db.seq };
     replace(clean(d));
+    for (const k in db.seq) db.seq[k] = Math.max(db.seq[k], issued[k] || 1);
     commit();
     toast('Backup restored');
   }).catch(() => toast('That file is not a Brewhouse backup'));

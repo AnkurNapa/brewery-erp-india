@@ -1,5 +1,5 @@
 // Rendering helpers shared by every screen.
-import { esc, num, $ } from './util.js';
+import { esc, num, $, toast, today } from './util.js';
 import { commit } from './store.js';
 
 export const head = (title, sub = '', btn = '') =>
@@ -76,7 +76,15 @@ export function openForm({ title, fields = [], vals = {}, onSave, lines: L, note
     e.preventDefault();
     const missing = fields.find(f => f.req && !form.elements[f.k].value.trim());
     if (missing) { form.elements[missing.k].focus(); return; }
-    if (onSave(readForm(form, fields), collect()) === false) return;
+    // Browsers skip min="0" on a novalidate form, so negatives and future postings are checked here.
+    // A field named date is a posting date unless it is marked future (plans, due dates).
+    const v = readForm(form, fields), rows = collect();
+    const neg = fields.find(f => f.type === 'number' && !f.allowNeg && v[f.k] < 0);
+    if (neg) { toast(`${neg.label} cannot be negative`); form.elements[neg.k].focus(); return; }
+    if (rows.some(r => (L?.cols ?? []).some(c => !c.text && r[c.k] < 0))) { toast('Line quantities and prices cannot be negative'); return; }
+    const late = fields.find(f => f.type === 'date' && f.k === 'date' && !f.future && v[f.k] > today());
+    if (late) { toast(`${late.label} cannot be in the future`); form.elements[late.k].focus(); return; }
+    if (onSave(v, rows) === false) return;
     m.close();
     commit();
   };

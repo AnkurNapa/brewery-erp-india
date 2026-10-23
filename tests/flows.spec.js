@@ -134,7 +134,13 @@ test('9 excise: booked at Ready, or on removal when set', async ({ page }) => {
     return { ready: b3.dutyRate, dutyL: b3.dutyL, removal: b4.dutyRate };
   });
   expect(r).toEqual({ ready: 50, dutyL: 493, removal: 0 });
+  // Beer already taxed at Ready is not taxed again when poured after the switch to Removal.
   await go(page, 'sales');
+  await page.getByRole('button', { name: 'New invoice' }).click();
+  await sheet(page);
+  expect(await db(page, d => d.sales.at(-1).duty)).toBe(0);
+  // Beer that was never taxed at Ready pays duty as it leaves.
+  await run(page, async () => { const s = await import('/js/store.js'); s.db.batches.forEach(b => { b.dutyRate = 0; }); s.commit(); });
   await page.getByRole('button', { name: 'New invoice' }).click();
   await sheet(page);
   expect(await db(page, d => d.sales.at(-1).duty)).toBeGreaterThan(0);
@@ -516,6 +522,46 @@ test('40 CSV follows the period filter', async ({ page }) => {
   await go(page, 'losses');
   const lossesInWeek = await db(page, `d => d.losses.filter(l => l.date >= '${from}' && l.date <= '${t}').length`);
   expect(await lines('Losses CSV')).toEqual([`beer-losses-${from}-to-${t}.csv`, lossesInWeek]);
+});
+
+test('41 audit wave 1: stock, tank, excise and form controls', async ({ page }) => {
+  await fresh(page, 'batches');
+  const r = await run(page, async () => {
+    const s = await import('/js/store.js'), c = await import('/js/calc.js'), brew = await import('/js/views/brew.js');
+    const out = {};
+    // Rejected stock is never drawn and a shortfall changes nothing.
+    const m = s.db.materials[0];
+    m.lots = [{ id: 'good', date: '', qty: 10, expiry: '', qc: 'Approved', cost: 50, ref: '' }, { id: 'bad', date: '', qty: 100, expiry: '2020-01-01', qc: 'Rejected', cost: 40, ref: '' }];
+    m.qty = 110;
+    out.short = s.consume(m, 20);
+    out.after = m.lots.map(l => l.qty);
+    out.drawn = s.consume(m, 4);
+    // A batch still in the tank cannot be packaged past what is in it.
+    const b3 = s.db.batches.find(b => b.code === 'B-003'), before = c.tankLeft(b3);
+    s.db.packs.push({ id: 'pk', batchId: b3.id, date: '2026-01-01', format: 'Can 330 ml', unitL: 0.33, units: 300, adjusted: 0, kegIds: [] });
+    out.tankDrop = +(before - c.tankLeft(b3)).toFixed(1);
+    // Ready is final for excise: no way back into the tank.
+    const b1 = s.db.batches.find(b => b.code === 'B-001');
+    brew.setStatus(b1.id, 'Conditioning');
+    out.b1 = [b1.status, b1.dutyRate > 0];
+    // Beer booked Ready at 0 L pays no duty.
+    out.zeroDuty = c.duty({ readyDate: '2026-01-01', dutyL: 0, volume: 500, dutyRate: 50 });
+    return out;
+  });
+  expect(r).toEqual({ short: null, after: [10, 100], drawn: [{ lotId: 'good', qty: 4, cost: 200 }], tankDrop: 99, b1: ['Ready', true], zeroDuty: 0 });
+
+  // Negative quantities are refused by the form.
+  await go(page, 'packaging');
+  await page.getByRole('button', { name: 'Package beer' }).first().click();
+  await sheet(page, { units: -3 });
+  await expect(page.locator('#toast')).toContainText('Units cannot be negative');
+  expect(await db(page, d => d.kegs.filter(k => k.status === 'Filled').length)).toBe(3);
+  await page.keyboard.press('Escape');
+
+  // Changing a menu item's serve size leaves past sales alone.
+  const before = await run(page, async () => (await import('/js/calc.js')).beerStock().map(x => +x.total.toFixed(1)));
+  await run(page, async () => { const s = await import('/js/store.js'); s.db.products[0].ml = 1000; s.commit(); });
+  expect(await run(page, async () => (await import('/js/calc.js')).beerStock().map(x => +x.total.toFixed(1)))).toEqual(before);
 });
 
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {

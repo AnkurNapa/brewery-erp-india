@@ -1,5 +1,5 @@
 // Quality and control: CIP log, beer losses, stock take with reconciliation.
-import { db, next, commit, persist, consume, addLot, CIP_CYCLES, LOSS_STAGES } from '../store.js';
+import { db, next, commit, persist, consume, addLot, usableQty, CIP_CYCLES, LOSS_STAGES } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysAgo, daysBetween } from '../util.js';
 import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
 import { periodSeg, periodRange, periodText, inPeriod } from '../period.js';
@@ -113,7 +113,7 @@ export const actions = {
       note: 'Full CIP and Sanitiser cycles that pass leave the tank sanitised. Other passing cycles leave it cleaned. A failed check leaves it dirty.',
       onSave: v => {
         const m = mat(v.chemicalId);
-        if (m && v.chemQty) consume(m, v.chemQty);
+        if (m && v.chemQty && !consume(m, v.chemQty)) { toast(`Only ${num(usableQty(m), 2)} ${m.unit} of ${m.name} approved in stores`); return false; }
         db.cip.push({ id: uid(), ...v });
         const t = tank(v.targetId);
         if (t) {
@@ -151,11 +151,17 @@ export const actions = {
     const c = db.counts.find(x => x.id === id), changes = c.lines.filter(l => l.counted !== '' && Math.abs(l.counted - l.system) > 1e-6);
     const missing = changes.filter(l => !l.reason.trim());
     if (missing.length) { countMode = 'review'; dispatchEvent(new Event('db')); return toast(`Add a reason for ${missing.length} line${missing.length > 1 ? 's' : ''} with a variance`); }
-    if (!confirm(`Post ${changes.length} adjustment${changes.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    // Stock may have moved since the count was opened. Variances are worked out against today's figures, not the snapshot,
+    // so a brew issued mid-count is not booked as a loss as well.
+    const now = l => { const [kind, ref] = l.ref.split(':'), p = db.packs.find(x => x.id === ref), b = db.batches.find(x => x.id === ref);
+      return kind === 'm' ? mat(ref)?.qty ?? 0 : kind === 'p' ? (p ? packLeft(p) : 0) : kind === 'b' ? (b ? +tankLeft(b).toFixed(1) : 0) : db.kegs.filter(k => k.status !== 'Lost').length; };
+    const moved = changes.filter(l => Math.abs(now(l) - l.system) > 1e-6).length;
+    if (!confirm(`Post ${changes.length} adjustment${changes.length === 1 ? '' : 's'}? This cannot be undone.${moved ? `\n${moved} item${moved === 1 ? ' has' : 's have'} moved since the count started. Variances use today's figures.` : ''}`)) return;
     for (const l of changes) {
-      const d = l.counted - l.system, [kind, ref] = l.ref.split(':');
-      if (kind === 'm') { const m = mat(ref); if (m) { if (d < 0) consume(m, -d); else addLot(m, { qty: d, qc: 'Approved', date: c.date, ref: c.no }); } }
-      if (kind === 'p') { const p = db.packs.find(x => x.id === ref); if (p) p.units = Math.max(0, p.units + d); }
+      const d = l.counted - now(l), [kind, ref] = l.ref.split(':');
+      if (kind === 'm') { const m = mat(ref); if (m) { if (d < 0) consume(m, Math.min(-d, usableQty(m, { allowPending: true, allowRejected: true })), { allowPending: true, allowRejected: true }); else if (d > 0) addLot(m, { qty: d, qc: 'Approved', date: c.date, ref: c.no }); } }
+      // Missing cans or bottles are written off the run's stock. The run itself keeps what was packed, so no beer returns to the tank.
+      if (kind === 'p') { const p = db.packs.find(x => x.id === ref); if (p) p.adjusted = +(p.adjusted + d).toFixed(3); }
       if (kind === 'b') db.losses.push({ id: uid(), date: c.date, batchId: ref, stage: 'Unexplained', litres: +(-d).toFixed(2), reason: `${c.no}: ${l.reason}` });
       db.adjustments.push({ id: uid(), date: c.date, countId: c.id, ref: l.ref, label: l.label, delta: +d.toFixed(3), value: +(d * l.cost).toFixed(2), reason: l.reason });
     }

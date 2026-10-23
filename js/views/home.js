@@ -25,7 +25,7 @@ import { rec, beerStock, invoice, alerts, exciseIn, tankLeft, tankFit } from '..
 const TASK_TYPES = ['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other'];
 const TASK_FIELDS = [
   { k: 'title', label: 'Task', req: 1, wide: 1 }, { k: 'type', label: 'Type', type: 'select', options: TASK_TYPES.map(t => ({ v: t, t })) },
-  { k: 'date', label: 'Due', type: 'date' }, { k: 'assignee', label: 'Assigned to' },
+  { k: 'date', label: 'Due', type: 'date', future: 1 }, { k: 'assignee', label: 'Assigned to' },
 ];
 let month = today().slice(0, 7);
 

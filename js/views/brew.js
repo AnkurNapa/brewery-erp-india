@@ -1,5 +1,5 @@
 // Tanks, batches, batch lifecycle record, recipes and packaging.
-import { db, next, commit, consume, addLot, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
+import { db, next, commit, consume, addLot, usableQty, restore, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween, sgFromP } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
 import { mat, rec, recipeAt, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
@@ -28,27 +28,31 @@ export function settle() {
 }
 
 // ---------- status changes ----------
+// Ingredients come out of stores lot by lot. Stock that is not there cannot be issued. Rejected lots are never used.
+// Pending lots are used only after the brewer agrees. Each issue keeps the lots it drew and their real cost.
 function issue(b) {
-  const r = rec(b.recipeId), list = issueList(r, b.volume);
-  const short = list.filter(i => (mat(i.id)?.qty || 0) < i.qty).map(i => mat(i.id)?.name);
-  const qc = list.filter(i => mat(i.id) && mat(i.id).qty >= i.qty && approvedQty(mat(i.id)) < i.qty).map(i => mat(i.id)?.name);
-  const warn = [short.length && `Not enough in stores: ${short.join(', ')}.`, qc.length && `Not QC approved: ${qc.join(', ')}.`].filter(Boolean);
-  if (warn.length && !confirm(`${warn.join('\n')}\nIssue the ingredients anyway?`)) return false;
-  for (const i of list) { const m = mat(i.id); if (m) consume(m, i.qty); }
-  Object.assign(b, { issued: true, issues: list, recipeVersion: r.version });
-  toast(`${b.code}: ingredients issued from stores (${inr0(sum(list, i => i.cost))})`);
+  const r = rec(b.recipeId), list = issueList(r, b.volume).filter(i => mat(i.id));
+  const short = list.filter(i => usableQty(mat(i.id), { allowPending: true }) + 1e-9 < i.qty).map(i => mat(i.id).name);
+  if (short.length) { toast(`Not enough in stores: ${short.join(', ')}. Receive it first, or correct the stock with a stock take.`); return false; }
+  const pending = list.filter(i => usableQty(mat(i.id)) + 1e-9 < i.qty).map(i => mat(i.id).name);
+  if (pending.length && !confirm(`Not QC approved yet: ${pending.join(', ')}.\nUse the pending deliveries for this brew?`)) return false;
+  const issues = list.map(i => { const lots = consume(mat(i.id), i.qty, { allowPending: pending.length > 0 }); return { ...i, lots, cost: +sum(lots, l => l.cost).toFixed(2) }; });
+  Object.assign(b, { issued: true, issues, recipeVersion: r.version });
+  toast(`${b.code}: ingredients issued from stores (${inr0(sum(issues, i => i.cost))})`);
   return true;
 }
 export function setStatus(id, status) {
   const b = db.batches.find(x => x.id === id);
+  // Once excise is booked at Ready the batch cannot go back to the tank, or the booking would vanish from a month already filed.
+  if (b.readyDate && !['Ready', 'Sold out'].includes(status)) { toast(`${b.code} was booked Ready on ${fmtDate(b.readyDate)}. It can only move to Sold out.`); return commit(); }
+  if (b.issued && status === 'Planned') { toast(`${b.code} has its ingredients issued, so it cannot go back to Planned`); return commit(); }
   if (!b.issued && status !== 'Planned') {
     if (!fitOrConfirm(tank(b.tankId)) || !issue(b)) return commit();
     for (const k of db.tasks.filter(k => k.status === 'Open' && k.title.includes(`(${b.code})`))) k.status = 'Done';
   }
   if (status === 'Sold out' && b.status !== 'Sold out') makeDirty(tank(b.tankId));
   b.status = status;
-  if (IN_TANK.includes(status) || status === 'Planned') Object.assign(b, { readyDate: '', dutyRate: 0 });
-  else if (!b.readyDate) { Object.assign(b, { readyDate: today(), dutyRate: db.settings.exciseBasis === 'Removal' ? 0 : db.settings.exciseRate, dutyL: +(b.volume - batchLoss(b)).toFixed(2) }); toast(db.settings.exciseBasis === 'Removal' ? `${b.code} is ready. Excise books as it is sold or dispatched` : `${b.code} booked in the excise register`); }
+  if (!IN_TANK.includes(status) && status !== 'Planned' && !b.readyDate) { Object.assign(b, { readyDate: today(), dutyRate: db.settings.exciseBasis === 'Removal' ? 0 : db.settings.exciseRate, dutyL: +(b.volume - batchLoss(b)).toFixed(2) }); toast(db.settings.exciseBasis === 'Removal' ? `${b.code} is ready. Excise books as it is sold or dispatched` : `${b.code} booked in the excise register`); }
   commit();
 }
 
@@ -126,7 +130,7 @@ export const views = {
           return `<ul class="list">${rows.join('')}</ul>`;
         })())}
       </div>
-      ${panel('Excise', b.readyDate ? `<p>${num(b.dutyL || b.volume)} bulk litres at ${inr(b.dutyRate)} per litre = <b>${inr(duty(b))}</b>, booked ${fmtDate(b.readyDate)}.</p>` : '<p class="empty">Booked when the batch is marked Ready.</p>')}`;
+      ${panel('Excise', b.readyDate ? `<p>${num(b.dutyL)} bulk litres at ${inr(b.dutyRate)} per litre = <b>${inr(duty(b))}</b>, booked ${fmtDate(b.readyDate)}.</p>` : '<p class="empty">Booked when the batch is marked Ready.</p>')}`;
   },
 
   packaging() {
@@ -187,7 +191,7 @@ export const actions = {
     const r = db.recipes[0];
     openForm({
       title: 'New batch', vals: { recipeId: r.id, date: today(), volume: r.size, status: 'Planned' },
-      fields: [{ k: 'recipeId', label: 'Recipe', type: 'select', options: recipeOpts() }, { k: 'date', label: 'Brew date', type: 'date' }, { k: 'volume', label: 'Volume into fermenter (L)', type: 'number' },
+      fields: [{ k: 'recipeId', label: 'Recipe', type: 'select', options: recipeOpts() }, { k: 'date', label: 'Brew date', type: 'date', future: 1 }, { k: 'volume', label: 'Volume into fermenter (L)', type: 'number' },
         { k: 'tankId', label: 'Tank', type: 'select', options: tankOpts() }, { k: 'status', label: 'Start as', type: 'select', options: [{ v: 'Planned', t: 'Planned (reserve ingredients)' }, { v: 'Brewing', t: 'Brewing today (issue ingredients)' }] }],
       onSave: v => {
         const rc = rec(v.recipeId), c = recipeCalc(rc);
@@ -201,14 +205,16 @@ export const actions = {
   },
   editBatch(id) {
     const b = db.batches.find(x => x.id === id);
-    openForm({ title: `Edit ${b.code}`, vals: b, fields: [{ k: 'date', label: 'Brew date', type: 'date' }, { k: 'volume', label: 'Volume (L)', type: 'number' }, { k: 'tankId', label: 'Tank', type: 'select', options: tankOpts() }, { k: 'notes', label: 'Notes', wide: 1 }],
+    openForm({ title: `Edit ${b.code}`, vals: b, fields: [{ k: 'date', label: 'Brew date', type: 'date', future: 1 }, { k: 'volume', label: 'Volume (L)', type: 'number' }, { k: 'tankId', label: 'Tank', type: 'select', options: tankOpts() }, { k: 'notes', label: 'Notes', wide: 1 }],
       onSave: v => { Object.assign(b, v); } });
   },
   delBatch(id) {
     const b = db.batches.find(x => x.id === id);
     if (db.packs.some(p => p.batchId === id)) return toast('This batch has been packaged, so it cannot be deleted');
-    if (!confirm(`Delete ${b.code}?${b.issued ? ' Its ingredients go back to stores.' : ''}`)) return;
-    for (const i of b.issues) { const m = mat(i.id); if (m) addLot(m, { qty: i.qty, qc: 'Approved', date: today(), ref: `Returned from ${b.code}` }); }
+    if (b.readyDate) return toast(`${b.code} is booked in the excise register, so it cannot be deleted`);
+    if (db.losses.some(l => l.batchId === id)) return toast(`${b.code} has beer losses recorded, so it cannot be deleted`);
+    if (!confirm(`Delete ${b.code}?${b.issued ? ' Its ingredients go back to the lots they came from.' : ''}`)) return;
+    for (const i of b.issues) { const m = mat(i.id); if (m) restore(m, i.lots.length ? i.lots : [{ lotId: '', qty: i.qty, cost: i.cost }], `Returned from ${b.code}`); }
     db.batches = db.batches.filter(x => x.id !== id);
     commit();
   },
@@ -225,6 +231,7 @@ export const actions = {
       note: 'Litres drawn above what was filled are recorded as a packaging loss.',
       onSave: v => {
         const unitL = FORMATS[v.format], b = db.batches.find(x => x.id === v.batchId), filled = v.units * unitL, drawn = v.drawn === '' ? filled : v.drawn, left = tankLeft(b);
+        if (!(v.units >= 1)) { toast('Pack at least one unit'); return false; }
         if (drawn > left + 0.01) { toast(`Only ${num(left)} L left in the tank`); return false; }
         if (drawn < filled) { toast('Litres drawn cannot be less than litres filled'); return false; }
         let kegIds = [];
@@ -277,6 +284,8 @@ export const actions = {
   },
   delPack(id) {
     const p = db.packs.find(x => x.id === id);
+    if (db.dispatches.some(d => d.lines.some(l => l.ref === 'p:' + id))) return toast('Some of this run has been dispatched, so it cannot be deleted');
+    if (p.kegIds.some(k => keg(k) && (keg(k).status !== 'Filled' || keg(k).batchId !== p.batchId))) return toast('Some kegs from this run have already left, so it cannot be deleted');
     if (!confirm('Delete this packaging run? Its kegs go back to empty.')) return;
     p.kegIds.forEach(k => { const kg = keg(k); if (kg?.status === 'Filled') undoKeg(kg, 'Empty', { batchId: '' }); });
     db.packs = db.packs.filter(x => x.id !== id);

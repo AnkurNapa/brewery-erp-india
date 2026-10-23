@@ -1,5 +1,5 @@
 // Raw materials, purchasing and MRP, equipment register with QR, keg map and turns, keg scan pages.
-import { db, next, commit, consume, addLot, KEG_STATES, moveKeg } from '../store.js';
+import { db, next, commit, consume, addLot, usableQty, KEG_STATES, moveKeg } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, addDays, daysBetween, downloadCsv } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, metric, openForm, qr, seg } from '../ui.js';
 import { mat, rec, vendor, cust, keg, tank, reserved, mrp, approvedQty, pendingLots, expiryOf, kegStats } from '../calc.js';
@@ -189,7 +189,8 @@ export const actions = {
     const m = mat(id);
     openForm({ title: `Use or waste ${m.name}`, vals: { date: today(), reason: 'Wastage' },
       fields: [{ k: 'qty', label: `Quantity (${m.unit})`, type: 'number', req: 1 }, { k: 'date', label: 'Date', type: 'date' }, { k: 'reason', label: 'Reason', list: ['Wastage', 'Spillage', 'Expired', 'Lab sample', 'Cleaning'] }],
-      onSave: v => { consume(m, v.qty); db.wastage.push({ id: uid(), date: v.date, kind: 'Material', ref: m.id, qty: v.qty, reason: v.reason }); } });
+      // Writing off can take rejected or pending stock too: that is usually what is being thrown away.
+      onSave: v => { if (!consume(m, v.qty, { allowPending: true, allowRejected: true })) { toast(`Only ${num(m.qty, 2)} ${m.unit} in stores`); return false; } db.wastage.push({ id: uid(), date: v.date, kind: 'Material', ref: m.id, qty: v.qty, reason: v.reason }); } });
   },
 
   newPo() { poForm({ vendorId: db.vendors[0]?.id || '', date: today() }, []); },
@@ -275,7 +276,7 @@ export const actions = {
       note: washer ? `Logged as a CIP cycle on ${washer.name}.` : 'Add a keg washer under Machines to log washes against it.',
       onSave: v => {
         const m = mat(v.chemicalId);
-        if (m && v.chemQty) consume(m, v.chemQty);
+        if (m && v.chemQty && !consume(m, v.chemQty)) { toast(`Only ${num(usableQty(m), 2)} ${m.unit} of ${m.name} approved in stores`); return false; }
         if (washer) db.cip.push({ id: uid(), date: today(), targetId: washer.id, cycle: 'Full CIP', conc: '', temp: '', mins: '', chemicalId: v.chemicalId, chemQty: v.chemQty, operator: '', result: v.result, note: `Keg ${k.code}` });
         if (v.result === 'Pass') { moveKeg(k, 'Empty'); toast(`${k.code} washed and empty`); } else toast(`${k.code} failed, wash again`);
       } });

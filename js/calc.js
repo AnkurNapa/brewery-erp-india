@@ -96,12 +96,19 @@ export const issueList = (r, volume) => r.items.map(i => {
 });
 export const batchCost = b => sum(b.issues, i => i.cost);
 export const batchLoss = b => sum(db.losses.filter(l => l.batchId === b.id), l => l.litres);
-export const duty = b => (b.readyDate ? (b.dutyL || b.volume) * b.dutyRate : 0);
+// Duty is on the litres booked at Ready. A batch dumped before Ready books 0 L, not its brewed volume.
+export const duty = b => (b.readyDate ? b.dutyL * b.dutyRate : 0);
 // Excise on removal: booked on taproom pours and dispatches when Settings says so.
 export const removalDuty = l => (db.settings.exciseBasis === 'Removal' ? +(l * db.settings.exciseRate).toFixed(2) : 0);
+// Beer already taxed when its batch was booked Ready is not taxed again on removal, so changing the basis mid-stream
+// cannot double count. Dispatch lines name their batch; taproom lines fall back to any Ready batch of that beer still holding duty-paid stock.
+const taxedAtReady = l => (l.batchId ? batch(l.batchId)?.dutyRate > 0 : db.batches.some(b => b.recipeId === l.recipeId && b.status === 'Ready' && b.dutyRate > 0 && tankLeft(b) > 0));
+export const removalDutyOn = lines => removalDuty(sum(lines.filter(l => !taxedAtReady(l)), l => l.litres ?? lineL(l)));
 export const exciseIn = (from, to = '9999') => sum(db.batches.filter(b => b.readyDate >= from && b.readyDate <= to), duty)
   + sum(db.sales.filter(s => s.date >= from && s.date <= to), s => s.duty) + sum(db.dispatches.filter(d => d.date >= from && d.date <= to), d => d.duty);
-export const beerLitres = lines => sum(lines, l => { const p = prod(l.pid); return p?.kind === 'beer' ? l.qty * p.ml / 1000 : 0; });
+// Litres and beer come from the sale line itself, so a later menu change does not alter history.
+export const lineL = l => (l.kind === 'beer' ? l.qty * (l.ml || 0) / 1000 : 0);
+export const beerLitres = lines => sum(lines, lineL);
 export const packedL = p => p.units * p.unitL;
 export const batchPackedL = b => sum(db.packs.filter(p => p.batchId === b.id), packedL);
 
@@ -127,7 +134,7 @@ export function efficiency(b) {
 }
 
 // ---------- stock ----------
-export const reserved = mid => sum(db.batches.filter(b => b.status === 'Planned'), b => {
+export const reserved = mid => sum(db.batches.filter(b => b.status === 'Planned' && !b.issued), b => {
   const r = rec(b.recipeId);
   return r ? sum(r.items.filter(i => i.id === mid), i => i.qty * b.volume / (r.size || 1)) : 0;
 });
@@ -140,13 +147,15 @@ export const available = m => approvedQty(m) - reserved(m.id);
 export function mrp() {
   return db.materials.map(m => {
     const res = reserved(m.id), ord = onOrder(m.id);
-    return { m, res, ord, avail: approvedQty(m) - res, suggest: Math.max(0, Math.ceil(m.reorder * 1.5 + res - m.qty - ord)) };
+    // Rejected lots will never be used, so they do not count as stock when deciding what to order.
+    const usable = sum(m.lots.filter(l => l.qc !== 'Rejected' && l.qty > 0), l => l.qty);
+    return { m, res, ord, avail: approvedQty(m) - res, suggest: Math.max(0, Math.ceil(m.reorder * 1.5 + res - usable - ord)) };
   });
 }
 
 const dispatched = p => sum(db.dispatches.flatMap(d => d.lines).filter(l => l.ref === 'p:' + p.id), l => l.qty);
-export const packLeft = p => (p.kegIds.length ? p.kegIds.filter(id => keg(id)?.status === 'Filled' && keg(id)?.batchId === p.batchId).length : p.units - dispatched(p));
-const tapL = (r, from = '') => sum(db.sales.filter(s => s.date >= from).flatMap(s => s.lines), l => { const p = prod(l.pid); return p?.recipeId === r.id ? l.qty * p.ml / 1000 : 0; });
+export const packLeft = p => (p.kegIds.length ? p.kegIds.filter(id => keg(id)?.status === 'Filled' && keg(id)?.batchId === p.batchId).length : p.units + p.adjusted - dispatched(p));
+const tapL = (r, from = '') => sum(db.sales.filter(s => s.date >= from).flatMap(s => s.lines), l => (l.recipeId === r.id ? lineL(l) : 0));
 
 function draughtL(r) {
   const bs = db.batches.filter(b => b.recipeId === r.id);
@@ -156,7 +165,7 @@ function draughtL(r) {
 }
 // Litres physically in a tank. Ready beer drains oldest batch first.
 export function tankLeft(b) {
-  if (IN_TANK.includes(b.status)) return Math.max(0, b.volume - batchLoss(b));
+  if (IN_TANK.includes(b.status)) return Math.max(0, b.volume - batchLoss(b) - batchPackedL(b));
   if (b.status !== 'Ready') return 0;
   const r = rec(b.recipeId);
   let left = Math.max(0, r ? draughtL(r) : 0);
@@ -219,7 +228,7 @@ export function beerReconcile(count) {
   const beer = c => sum(c.lines.filter(l => l.ref.startsWith('b:')), l => (l.counted === '' ? l.system : l.counted));
   const from = prev?.date || '', to = count.date, inP = d => d > from && d <= to;
   const brewed = sum(db.batches.filter(b => b.issued && inP(b.date)), b => b.volume);
-  const sold = sum(db.sales.filter(s => inP(s.date)).flatMap(s => s.lines), l => { const p = prod(l.pid); return p?.kind === 'beer' ? l.qty * p.ml / 1000 : 0; });
+  const sold = sum(db.sales.filter(s => inP(s.date)).flatMap(s => s.lines), lineL);
   const packaged = sum(db.packs.filter(p => inP(p.date)), packedL);
   const lost = sum(db.losses.filter(l => inP(l.date) && l.stage !== 'Unexplained'), l => l.litres) + sum(db.wastage.filter(w => w.kind === 'Beer' && inP(w.date)), w => w.qty);
   const opening = prev ? beer(prev) : null, expected = opening == null ? null : opening + brewed - sold - packaged - lost;
@@ -242,8 +251,8 @@ export function cogs(from = daysAgo(30), to = '9999-12-31') {
   const utilL = sum(db.utilities.filter(u => within(u.date)), u => u.cost) / brewedL;
   return db.recipes.map(r => {
     const c = recipeCalc(r);
-    const beerLines = db.sales.flatMap(s => s.lines).filter(l => prod(l.pid)?.recipeId === r.id);
-    const litres = sum(beerLines, l => l.qty * prod(l.pid).ml / 1000);
+    const beerLines = db.sales.flatMap(s => s.lines).filter(l => l.recipeId === r.id);
+    const litres = sum(beerLines, lineL);
     const priceL = litres ? sum(beerLines, l => l.qty * l.price) / litres : 0;
     const rm = c.cost / (c.sellable || 1), exc = db.settings.exciseRate * r.size / (c.sellable || 1);
     const total = rm + utilL + exc;

@@ -42,17 +42,17 @@ const SCHEMA = {
   batches: {
     id: ID, code: STR, recipeId: ID, recipeVersion: NUM, date: DATE, status: ONE(STATUSES), volume: NUM, og: NUM, fg: NUM, tankId: ID, notes: STR,
     readyDate: DATE, dutyRate: NUM, dutyL: NUM, issued: BOOL,
-    transfers: LIST({ date: DATE, fromId: ID, toId: ID, litresOut: NUM, litresIn: NUM }), issues: LIST({ id: ID, qty: NUM, cost: NUM }),
+    transfers: LIST({ date: DATE, fromId: ID, toId: ID, litresOut: NUM, litresIn: NUM }), issues: LIST({ id: ID, qty: NUM, cost: NUM, lots: LIST({ lotId: ID, qty: NUM, cost: NUM }) }),
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
     brew: obj({ mashTemp: OPT, steps: v => (Array.isArray(v) ? v.map(OPT) : []), preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
-  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM }) },
+  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID }) },
   kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE, history: LIST({ date: DATE, status: ONE(KEG_STATES), batchId: ID, customerId: ID }) },
   equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM },
   customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR, lat: GEO(90), lng: GEO(180) },
   vendors: { id: ID, name: STR, gstin: STR, phone: STR, supplies: STR },
   pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
-  packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, kegIds: IDS },
+  packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, adjusted: NUM, kegIds: IDS },
   dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM, batchId: ID }) },
   tasks: { id: ID, title: STR, type: ONE(TASK_TYPES), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
@@ -94,6 +94,13 @@ export function clean(d) {
     if (!r.mash.length) r.mash = single;
     r.history.forEach(h => { if (!h.snap.mash.length) h.snap.mash = r.mash; });
   });
+  // Sale lines keep their own serve size and beer, so editing or retiring a menu item never rewrites past sales.
+  for (const s of out.sales) for (const l of s.lines) {
+    const p = out.products.find(x => x.id === l.pid);
+    if (p && !l.ml) Object.assign(l, { ml: p.ml, recipeId: p.recipeId });
+  }
+  // Older data booked Ready without the litres: use the volume, as the register did then.
+  out.batches.forEach((b, i) => { if (b.readyDate && d?.batches?.[i]?.dutyL == null) b.dutyL = b.volume; });
   // Older brew logs kept one mash temperature: it becomes the first step's actual.
   for (const b of out.batches) if (!b.brew.steps.length && b.brew.mashTemp !== '') b.brew.steps = [b.brew.mashTemp];
   return out;
@@ -137,13 +144,34 @@ export function commit() {
   dispatchEvent(new Event('db'));
 }
 // Stock moves through lots so QC and expiry apply per delivery.
-// Use approved stock first, earliest expiry first. A shortfall drives the newest lot negative.
-export function consume(m, qty) {
+// Draws stock lot by lot: approved first, earliest expiry first. Rejected lots are never used unless the caller is
+// writing them off; pending lots only once the user has agreed. Returns the lots drawn with their own cost, so a batch
+// knows exactly which deliveries went into it. Returns null and changes nothing when there is not enough.
+export const usableQty = (m, { allowPending = false, allowRejected = false } = {}) =>
+  m.lots.filter(l => l.qty > 0 && (l.qc === 'Approved' || (allowPending && l.qc === 'Pending') || (allowRejected && l.qc === 'Rejected'))).reduce((a, l) => a + l.qty, 0);
+export function consume(m, qty, { allowPending = false, allowRejected = false } = {}) {
+  const ok = l => l.qty > 0 && (l.qc === 'Approved' || (allowPending && l.qc === 'Pending') || (allowRejected && l.qc === 'Rejected'));
+  const order = m.lots.filter(ok).sort((a, b) => (a.qc !== 'Approved') - (b.qc !== 'Approved') || (a.expiry || '9999').localeCompare(b.expiry || '9999'));
+  if (usableQty(m, { allowPending, allowRejected }) + 1e-9 < qty) return null;
   let left = qty;
-  const order = [...m.lots].sort((a, b) => (a.qc !== 'Approved') - (b.qc !== 'Approved') || (a.expiry || '9999').localeCompare(b.expiry || '9999'));
-  for (const l of order) { if (left <= 0) break; const take = Math.min(left, Math.max(0, l.qty)); l.qty = +(l.qty - take).toFixed(3); left -= take; }
-  if (left > 1e-9) { const last = m.lots.at(-1) || (m.lots[0] = { id: 'l' + m.id, date: '', qty: 0, expiry: '', qc: 'Approved', cost: m.cost, ref: 'Shortfall' }); last.qty = +(last.qty - left).toFixed(3); }
+  const drawn = [];
+  for (const l of order) {
+    if (left <= 1e-9) break;
+    const take = Math.min(left, l.qty);
+    l.qty = +(l.qty - take).toFixed(3);
+    left -= take;
+    drawn.push({ lotId: l.id, qty: +take.toFixed(3), cost: +(take * (l.cost || m.cost)).toFixed(2) });
+  }
   m.lots = m.lots.filter(l => Math.abs(l.qty) > 1e-9 || l.qc === 'Pending');
+  m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
+  return drawn;
+}
+// Puts drawn stock back into the lots it came from, or a new lot at its own cost if that lot is gone.
+export function restore(m, drawn, ref) {
+  for (const d of drawn) {
+    const l = m.lots.find(x => x.id === d.lotId);
+    if (l) l.qty = +(l.qty + d.qty).toFixed(3); else addLot(m, { qty: d.qty, qc: 'Approved', cost: d.qty ? d.cost / d.qty : m.cost, date: today(), ref });
+  }
   m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
 }
 export function addLot(m, lot) {
