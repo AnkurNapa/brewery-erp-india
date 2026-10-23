@@ -95,6 +95,10 @@ export const issueList = (r, volume) => r.items.map(i => {
   return { id: i.id, qty, cost: +(qty * (mat(i.id)?.cost || 0)).toFixed(2) };
 });
 export const batchCost = b => sum(b.issues, i => i.cost);
+// Cans, ends, crowns and labels used by a batch's packaging runs.
+export const packCost = b => sum(db.packs.filter(p => p.batchId === b.id).flatMap(p => p.mats), x => x.cost);
+// Stock at what it cost, lot by lot. Rejected lots carry no value.
+export const stockValue = m => sum(m.lots.filter(l => l.qc !== 'Rejected' && l.qty > 0), l => l.qty * (l.cost || m.cost));
 export const batchLoss = b => sum(db.losses.filter(l => l.batchId === b.id && !l.voided), l => l.litres);
 // Duty is on the litres booked at Ready. A batch dumped before Ready books 0 L, not its brewed volume.
 export const duty = b => (b.readyDate ? b.dutyL * b.dutyRate : 0);
@@ -138,7 +142,7 @@ export const reserved = mid => sum(db.batches.filter(b => b.status === 'Planned'
   const r = rec(b.recipeId);
   return r ? sum(r.items.filter(i => i.id === mid), i => i.qty * b.volume / (r.size || 1)) : 0;
 });
-export const onOrder = mid => sum(db.pos.filter(p => p.status === 'Open').flatMap(p => p.lines).filter(l => l.id === mid), l => l.qty);
+export const onOrder = mid => sum(db.pos.filter(p => ['Open', 'Part received'].includes(p.status)).flatMap(p => p.lines).filter(l => l.id === mid), l => Math.max(0, l.qty - l.got));
 export const approvedQty = m => sum(m.lots.filter(l => l.qc === 'Approved'), l => l.qty);
 export const pendingLots = m => m.lots.filter(l => l.qc === 'Pending' && l.qty > 0);
 export const expiryOf = m => m.lots.filter(l => l.qty > 0 && l.expiry).map(l => l.expiry).sort()[0] || '';
@@ -154,8 +158,23 @@ export function mrp() {
 }
 
 const dispatched = p => sum(db.dispatches.flatMap(d => d.lines).filter(l => l.ref === 'p:' + p.id), l => l.qty);
-export const packLeft = p => (p.kegIds.length ? p.kegIds.filter(id => keg(id)?.status === 'Filled' && keg(id)?.batchId === p.batchId).length : p.units + p.adjusted - dispatched(p));
-const tapL = (r, from = '') => sum(db.sales.filter(s => s.date >= from).flatMap(s => s.lines), l => (l.recipeId === r.id ? lineL(l) : 0));
+// Cans and bottles sold over the bar come out of packed stock, oldest run first, not out of the tank.
+export const fromDraught = l => !l.from || l.from === 'Draught';
+const tapLineL = l => (fromDraught(l) ? lineL(l) : 0);
+function soldFromPack(p) {
+  const b = batch(p.batchId);
+  if (!b || p.kegIds.length) return 0;
+  const sold = sum(db.sales.flatMap(s => s.lines).filter(l => l.from === p.format && l.recipeId === b.recipeId), l => l.qty);
+  let before = 0;
+  for (const x of db.packs.filter(x => x.format === p.format && batch(x.batchId)?.recipeId === b.recipeId).sort((a, c) => a.date.localeCompare(c.date) || a.id.localeCompare(c.id))) {
+    const avail = x.units + x.adjusted - dispatched(x);
+    if (x.id === p.id) return Math.max(0, Math.min(avail, sold - before));
+    before += avail;
+  }
+  return 0;
+}
+export const packLeft = p => (p.kegIds.length ? p.kegIds.filter(id => keg(id)?.status === 'Filled' && keg(id)?.batchId === p.batchId).length : p.units + p.adjusted - dispatched(p) - soldFromPack(p));
+const tapL = (r, from = '') => sum(db.sales.filter(s => s.date >= from).flatMap(s => s.lines), l => (l.recipeId === r.id ? tapLineL(l) : 0));
 
 function draughtL(r) {
   const bs = db.batches.filter(b => b.recipeId === r.id);
@@ -228,7 +247,7 @@ export function beerReconcile(count) {
   const beer = c => sum(c.lines.filter(l => l.ref.startsWith('b:')), l => (l.counted === '' ? l.system : l.counted));
   const from = prev?.date || '', to = count.date, inP = d => d > from && d <= to;
   const brewed = sum(db.batches.filter(b => b.issued && inP(b.date)), b => b.volume);
-  const sold = sum(db.sales.filter(s => inP(s.date)).flatMap(s => s.lines), lineL);
+  const sold = sum(db.sales.filter(s => inP(s.date)).flatMap(s => s.lines), tapLineL);
   const packaged = sum(db.packs.filter(p => inP(p.date)), packedL);
   const lost = sum(db.losses.filter(l => inP(l.date) && l.stage !== 'Unexplained' && !l.voided), l => l.litres) + sum(db.wastage.filter(w => !w.voided && w.kind === 'Beer' && inP(w.date)), w => w.qty);
   const opening = prev ? beer(prev) : null, expected = opening == null ? null : opening + brewed - sold - packaged - lost;
@@ -264,14 +283,18 @@ export function cogs(from = daysAgo(30), to = '9999-12-31') {
   const within = d => d >= from && d <= to;
   const brewedL = sum(db.batches.filter(b => b.issued && within(b.date)), b => b.volume) || 1;
   const utilL = sum(db.utilities.filter(u => within(u.date)), u => u.cost) / brewedL;
+  // Actual cost from the batches brewed in the period: lots issued, packaging used and duty booked, over litres that
+  // survived. With no batch in the period it falls back to the recipe's standard cost and says so.
   return db.recipes.map(r => {
-    const c = recipeCalc(r);
-    const beerLines = db.sales.flatMap(s => s.lines).filter(l => l.recipeId === r.id);
+    const c = recipeCalc(r), bs = db.batches.filter(b => b.recipeId === r.id && b.issued && within(b.date));
+    const sellable = sum(bs, b => b.volume - batchLoss(b)), actual = bs.length > 0 && sellable > 0;
+    const beerLines = db.sales.filter(s => within(s.date)).flatMap(s => s.lines).filter(l => l.recipeId === r.id);
     const litres = sum(beerLines, lineL);
     const priceL = litres ? sum(beerLines, l => l.qty * l.price) / litres : 0;
-    const rm = c.cost / (c.sellable || 1), exc = db.settings.exciseRate * r.size / (c.sellable || 1);
+    const rm = actual ? sum(bs, b => batchCost(b) + packCost(b)) / sellable : c.cost / (c.sellable || 1);
+    const exc = actual ? sum(bs, duty) / sellable : db.settings.exciseBasis === 'Removal' ? db.settings.exciseRate : db.settings.exciseRate * r.size / (c.sellable || 1);
     const total = rm + utilL + exc;
-    return { r, rm, util: utilL, exc, total, priceL, margin: priceL ? (priceL - total) / priceL * 100 : 0 };
+    return { r, rm, util: utilL, exc, total, priceL, basis: actual ? 'Actual' : 'Standard', margin: priceL ? (priceL - total) / priceL * 100 : 0 };
   });
 }
 

@@ -1,10 +1,9 @@
 // Tanks, batches, batch lifecycle record, recipes and packaging.
-import { db, remove, next, commit, logAct, consume, addLot, usableQty, restore, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
+import { db, remove, next, commit, logAct, FORMATS, consume, addLot, usableQty, restore, STATUSES, IN_TANK, LOSS_STAGES, moveKeg, undoKeg } from '../store.js';
 import { esc, num, sg, inr, inr0, today, fmtDate, sum, uid, toast, abv, daysBetween, sgFromP } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, vessel, curve, openForm, metric } from '../ui.js';
 import { mat, rec, recipeAt, tank, keg, cust, approvedQty, tankLeft, tankFit, lastCip, lossBalance, batchLoss, recipeCalc, issueList, batchCost, deviations, efficiency, duty, packedL, batchPackedL, packLeft } from '../calc.js';
 
-const FORMATS = { 'Keg 30 L': 30, 'Keg 50 L': 50, 'Can 330 ml': 0.33, 'Bottle 330 ml': 0.33, 'Bottle 650 ml': 0.65, 'Growler 2 L': 2 };
 const recipeOpts = () => db.recipes.map(r => ({ v: r.id, t: `${r.name} (v${r.version})` }));
 const tankOpts = () => [{ v: '', t: 'None' }, ...db.tanks.map(t => ({ v: t.id, t: `${t.name} · ${t.type}` }))];
 const emptyBrew = () => ({ mashTemp: '', steps: [], preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' });
@@ -45,6 +44,8 @@ export function setStatus(id, status) {
   const b = db.batches.find(x => x.id === id);
   // Once excise is booked at Ready the batch cannot go back to the tank, or the booking would vanish from a month already filed.
   if (b.readyDate && !['Ready', 'Sold out'].includes(status)) { toast(`${b.code} was booked Ready on ${fmtDate(b.readyDate)}. It can only move to Sold out.`); return commit(); }
+  // No beer goes on sale without a passing QC release (SAP usage decision): measured ABV, pH and a tasting.
+  if (status === 'Ready' && !b.readyDate && b.release.result !== 'Pass') { toast(`${b.code} needs a passing QC release before it can be Ready. Record it on the batch record.`); return commit(); }
   if (b.issued && status === 'Planned') { toast(`${b.code} has its ingredients issued, so it cannot go back to Planned`); return commit(); }
   if (!b.issued && status !== 'Planned') {
     if (!fitOrConfirm(tank(b.tankId)) || !issue(b)) return commit();
@@ -131,6 +132,7 @@ export const views = {
           return `<ul class="list">${rows.join('')}</ul>`;
         })())}
       </div>
+      ${panel('QC release', b.release.result ? `<p>${pill(b.release.result, b.release.result === 'Pass' ? 'ok' : 'low')} ${b.release.abv !== '' ? `ABV ${num(b.release.abv)}%` : ''} ${b.release.ph !== '' ? `· pH ${num(b.release.ph, 2)}` : ''}</p><p>${esc(b.release.sensory)}</p><p class="note">By ${esc(b.release.by || 'not named')} on ${fmtDate(b.release.date)}</p>` : '<p class="empty">Measured ABV, pH and a tasting panel must pass before the batch can be marked Ready.</p>', b.readyDate ? '' : link('Record release', 'releaseQc', b.id))}
       ${panel('Excise', b.readyDate ? `<p>${num(b.dutyL)} bulk litres at ${inr(b.dutyRate)} per litre = <b>${inr(duty(b))}</b>, booked ${fmtDate(b.readyDate)}.</p>` : '<p class="empty">Booked when the batch is marked Ready.</p>')}`;
   },
 
@@ -141,7 +143,9 @@ export const views = {
         <td>${p.kegIds.map(id => esc(keg(id)?.code)).join(', ')}</td><td class="acts">${link('Delete', 'delPack', p.id, 'del')}</td></tr>`;
     });
     return head('Packaging', 'Kegging, canning and bottling. Kegs are picked from empty stock and tagged to the batch for traceability.', btn('Package beer', 'newPack'))
-      + panel('', table(['Date', 'Batch', 'Format', { t: 'Units', n: 1 }, { t: 'Litres', n: 1 }, { t: 'In stock', n: 1 }, 'Kegs', ''], rows));
+      + panel('', table(['Date', 'Batch', 'Format', { t: 'Units', n: 1 }, { t: 'Litres', n: 1 }, { t: 'In stock', n: 1 }, 'Kegs', ''], rows))
+      + panel('Packaging materials per unit', table(['Format', 'Uses per unit', ''], Object.keys(FORMATS).map(f => `<tr><td>${esc(f)}</td><td>${db.settings.packBom.filter(x => x.format === f).map(x => `${esc(mat(x.id)?.name || '?')} × ${num(x.qty, 3)}`).join(', ') || '<span class="sub">Nothing set</span>'}</td><td class="acts">${link('Edit', 'packBom', f)}</td></tr>`))
+        + '<p class="note">Each run takes these from stores and adds their cost to the batch.</p>');
   },
 };
 
@@ -234,6 +238,9 @@ export const actions = {
         if (!(v.units >= 1)) { toast('Pack at least one unit'); return false; }
         if (drawn > left + 0.01) { toast(`Only ${num(left)} L left in the tank`); return false; }
         if (drawn < filled) { toast('Litres drawn cannot be less than litres filled'); return false; }
+        // Cans, ends, crowns, labels or gas set for this format in Packaging materials come out of stores with the run.
+        const bom = db.settings.packBom.filter(x => x.format === v.format && mat(x.id)), short = bom.filter(x => usableQty(mat(x.id)) + 1e-9 < x.qty * v.units);
+        if (short.length) { toast(`Not enough approved ${short.map(x => mat(x.id).name).join(', ')} for ${v.units} units`); return false; }
         let kegIds = [];
         if (v.format.startsWith('Keg')) {
           const free = db.kegs.filter(k => k.status === 'Empty' && k.size === unitL).slice(0, v.units);
@@ -241,7 +248,8 @@ export const actions = {
           free.forEach(k => moveKeg(k, 'Filled', v.date, { batchId: b.id, customerId: '' }));
           kegIds = free.map(k => k.id);
         }
-        db.packs.push({ id: uid(), batchId: b.id, date: v.date, format: v.format, unitL, units: v.units, kegIds });
+        const mats = bom.map(x => { const lots = consume(mat(x.id), x.qty * v.units); return { id: x.id, qty: +(x.qty * v.units).toFixed(3), cost: +sum(lots, l => l.cost).toFixed(2), lots }; });
+        db.packs.push({ id: uid(), batchId: b.id, date: v.date, format: v.format, unitL, units: v.units, kegIds, mats, adjusted: 0 });
         if (drawn - filled > 0.01) db.losses.push({ id: uid(), date: v.date, batchId: b.id, stage: 'Packaging', litres: +(drawn - filled).toFixed(2), reason: `${v.format} run` });
         toast(`${v.units} × ${v.format} packed${kegIds.length ? ': ' + kegIds.map(id => keg(id).code).join(', ') : ''}`);
       },
@@ -282,12 +290,27 @@ export const actions = {
         toast(`${num(v.litres)} L loss recorded on ${b.code}`);
       } });
   },
+  packBom(format) {
+    const opts = db.materials.filter(m => ['Packaging', 'Gas', 'Other'].includes(m.type)).map(m => ({ id: m.id, label: `${m.name} (${m.unit})` }));
+    if (!opts.length) return toast('Add packaging materials (cans, ends, crowns, labels) under Raw materials first');
+    openForm({ title: `${format}: materials per unit`, lines: { label: 'Material', rows: db.settings.packBom.filter(x => x.format === format).map(x => ({ id: x.id, qty: x.qty })), opts, cols: [{ k: 'qty', label: 'Per unit' }] },
+      onSave: (v, lines) => { db.settings.packBom = [...db.settings.packBom.filter(x => x.format !== format), ...lines.map(l => ({ format, id: l.id, qty: l.qty }))]; toast(`${format} materials saved`); } });
+  },
+  releaseQc(id) {
+    const b = db.batches.find(x => x.id === id), r = rec(b.recipeId);
+    openForm({ title: `QC release ${b.code}`, vals: { ...b.release, date: today(), by: b.release.by || db.settings.user, abv: b.release.abv === '' && b.og ? +abv(b.og, b.fg).toFixed(1) : b.release.abv, result: b.release.result || 'Pass' },
+      fields: [{ k: 'abv', label: 'Measured ABV (%)', type: 'number', blank: 1 }, { k: 'ph', label: 'pH', type: 'number', blank: 1 }, { k: 'sensory', label: 'Tasting notes', wide: 1 },
+        { k: 'result', label: 'Decision', type: 'select', options: [{ v: 'Pass', t: 'Pass, release for sale' }, { v: 'Fail', t: 'Fail, hold the batch' }] }, { k: 'by', label: 'Released by', req: 1 }, { k: 'date', label: 'Date', type: 'date' }],
+      note: r ? `Recipe target ${num(recipeCalc(r).abv)}% ABV.` : '',
+      onSave: v => { b.release = v; logAct(`QC ${v.result === 'Pass' ? 'released' : 'held'}`, b.code, `${v.abv !== '' ? v.abv + '% ABV, ' : ''}${v.sensory}`); } });
+  },
   delPack(id) {
     const p = db.packs.find(x => x.id === id);
     if (db.dispatches.some(d => d.lines.some(l => l.ref === 'p:' + id))) return toast('Some of this run has been dispatched, so it cannot be deleted');
     if (p.kegIds.some(k => keg(k) && (keg(k).status !== 'Filled' || keg(k).batchId !== p.batchId))) return toast('Some kegs from this run have already left, so it cannot be deleted');
     if (!confirm('Delete this packaging run? Its kegs go back to empty.')) return;
     p.kegIds.forEach(k => { const kg = keg(k); if (kg?.status === 'Filled') undoKeg(kg, 'Empty', { batchId: '' }); });
+    for (const x of p.mats) { const m = mat(x.id); if (m) restore(m, x.lots, `${p.format} run deleted`); }
     db.packs = db.packs.filter(x => x.id !== id);
     commit();
   },

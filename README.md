@@ -14,6 +14,10 @@ It opens with a demo brewpub loaded. Tap **Start my brewery** in the bar on Home
 
 **Home.** Alerts for low stock, near expiry, pending QC, overdue tasks, service due, kegs left at customers and beers running low. A live picture of the brewery floor with every tank's fill level.
 
+**Controls.** Posted documents are never deleted. Invoices are cancelled by a credit note and dispatches by a reversal, both dated the day they are made, so a month already filed does not change. Losses, CIP records and write-offs are voided with a reason and stay on file. Settings can lock the books up to a date. An activity log records who cancelled, voided, deleted, posted or locked what. Stock is drawn lot by lot: rejected lots are never used and nothing goes negative. A batch needs a passing QC release before it is Ready. Ready is final for excise. These controls guard against mistakes. In a browser-only app they cannot stop someone who edits the browser's storage.
+
+**Receivables and purchasing.** Trade and credit invoices carry the customer's payment terms; payments are recorded against them and Customers shows ageing. Purchase orders take part deliveries and check the vendor invoice. Rejected lots can go back to the vendor. Each lot shows the batches that used it, for a supplier recall. Stock is valued at lot cost with a moving average price. Packaging runs use cans, ends and gas from stores. Cost of goods uses what each batch really cost.
+
 **Period filter.** Home, Reports, Taproom sales, Dispatch, Kegs and Beer losses share one filter: Today, This week, This month, This quarter, This FY or All time. Weeks start on Monday. Quarters and the year follow the Indian financial year from 1 April. The period you pick holds as you move between those screens. Stock, tanks and alerts always show today.
 
 **Schedule.** Month calendar of brewing, filling, dispatch, cleaning and maintenance tasks. A brew planner works out when to brew each beer from its sales rate, stock in hand, beer already in tanks and its average grain to glass cycle.

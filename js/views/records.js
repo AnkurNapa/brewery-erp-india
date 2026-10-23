@@ -5,7 +5,7 @@ import { head, btn, link, pill, statusCls, panel, table, kpi, openForm, seg, fie
 import { demo } from '../demo.js';
 import { consent, setConsent } from '../analytics.js';
 import { periodSeg, periodRange, periodText, inPeriod, periodFile } from '../period.js';
-import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp, exciseIn } from '../calc.js';
+import { mat, rec, cust, recipeCalc, invoice, duty, cogs, beerStock, batchCost, efficiency, deviations, batchPackedL, packedL, packLeft, mrp, exciseIn, stockValue } from '../calc.js';
 
 const UTIL_TYPES = { Electricity: 'kWh', Water: 'kL', 'LPG / PNG': 'kg', CO2: 'kg', Diesel: 'L', Other: '' };
 let reportTab = 'business';
@@ -17,10 +17,10 @@ const REPORTS = {
     const rm = sum(db.batches.filter(b => b.issued && inPeriod(b.date, range)), batchCost), util = sum(db.utilities.filter(u => inPeriod(u.date, range)), u => u.cost);
     const exc = exciseIn(...range), c = cogs(...range);
     return `<div class="kpis four">${kpi(inr0(rev), `Revenue, ${periodText()}`)}${kpi(inr0(rm), 'Ingredients issued')}${kpi(inr0(util), 'Utilities')}${kpi(inr0(exc), 'Excise booked')}</div>`
-      + panel('COGS per sellable litre', table(['Beer', { t: 'Ingredients', n: 1 }, { t: 'Utilities', n: 1 }, { t: 'Excise', n: 1 }, { t: 'Total cost', n: 1 }, { t: 'Avg price', n: 1 }, { t: 'Margin', n: 1 }],
-        c.map(x => `<tr><td>${esc(x.r.name)}</td><td class="n">${inr(x.rm)}</td><td class="n">${inr(x.util)}</td><td class="n">${inr(x.exc)}</td><td class="n"><b>${inr(x.total)}</b></td><td class="n">${x.priceL ? inr(x.priceL) : ''}</td>
+      + panel('COGS per sellable litre', table(['Beer', 'Basis', { t: 'Ingredients and packaging', n: 1 }, { t: 'Utilities', n: 1 }, { t: 'Excise', n: 1 }, { t: 'Total cost', n: 1 }, { t: 'Avg price', n: 1 }, { t: 'Margin', n: 1 }],
+        c.map(x => `<tr><td>${esc(x.r.name)}</td><td>${pill(x.basis, x.basis === 'Actual' ? 'ok' : 'grey')}</td><td class="n">${inr(x.rm)}</td><td class="n">${inr(x.util)}</td><td class="n">${inr(x.exc)}</td><td class="n"><b>${inr(x.total)}</b></td><td class="n">${x.priceL ? inr(x.priceL) : ''}</td>
           <td class="n">${x.priceL ? `<span class="${x.margin < 50 ? 'bad' : 'good'}">${num(x.margin, 0)}%</span>` : ''}</td></tr>`))
-        + `<p class="note">Utilities are spread over litres brewed ${periodText()}. Price is the average taproom price per litre before tax.</p>`);
+        + `<p class="note">Actual uses the lots issued, packaging used and duty booked on batches brewed ${periodText()}, over the litres that survived. Standard is the recipe's cost, used when no batch of that beer was brewed in the period. Utilities are spread over litres brewed. Price is the average taproom price per litre before tax.</p>`);
   },
   production() {
     const months = {};
@@ -48,8 +48,8 @@ const REPORTS = {
     const beer = beerStock(), max = Math.max(1, ...beer.map(s => s.total));
     return '<p class="note">Stock is as of today, so the period filter does not change it.</p>' + panel('Beer', table(['Beer', { t: 'In tank', n: 1 }, { t: 'Packaged', n: 1 }, { t: 'Total', n: 1 }, ''], beer.map(s => `<tr><td>${esc(s.r.name)}</td><td class="n">${num(Math.max(0, s.draught), 0)} L</td><td class="n">${num(s.packagedL, 0)} L</td><td class="n"><b>${num(s.total, 0)} L</b></td><td>${bar(s.total, max)}</td></tr>`)))
       + panel('Packaged goods', table(['Batch', 'Format', { t: 'Units left', n: 1 }], db.packs.filter(p => packLeft(p) > 0).map(p => { const b = db.batches.find(x => x.id === p.batchId); return `<tr><td>${esc(b?.code)} ${esc(rec(b?.recipeId)?.name || '')}</td><td>${esc(p.format)}</td><td class="n">${packLeft(p)}</td></tr>`; })))
-      + panel('Raw materials', table(['Material', { t: 'On hand', n: 1 }, { t: 'Available', n: 1 }, { t: 'Value', n: 1 }], mrp().map(x => `<tr><td>${esc(x.m.name)}</td><td class="n">${num(x.m.qty, 2)} ${esc(x.m.unit)}</td><td class="n ${x.avail <= x.m.reorder ? 'bad' : ''}">${num(x.avail, 2)}</td><td class="n">${inr0(x.m.qty * x.m.cost)}</td></tr>`),
-        `<tfoot><tr><td>Total</td><td></td><td></td><td class="n">${inr0(sum(db.materials, m => m.qty * m.cost))}</td></tr></tfoot>`));
+      + panel('Raw materials', table(['Material', { t: 'On hand', n: 1 }, { t: 'Available', n: 1 }, { t: 'Value', n: 1 }], mrp().map(x => `<tr><td>${esc(x.m.name)}</td><td class="n">${num(x.m.qty, 2)} ${esc(x.m.unit)}</td><td class="n ${x.avail <= x.m.reorder ? 'bad' : ''}">${num(x.avail, 2)}</td><td class="n">${inr0(stockValue(x.m))}</td></tr>`),
+        `<tfoot><tr><td>Total</td><td></td><td></td><td class="n">${inr0(sum(db.materials, stockValue))}</td></tr></tfoot>`));
   },
   process() {
     const bs = db.batches.filter(b => b.issued && inPeriod(b.date));

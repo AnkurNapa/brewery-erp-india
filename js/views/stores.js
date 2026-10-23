@@ -1,8 +1,8 @@
 // Raw materials, purchasing and MRP, equipment register with QR, keg map and turns, keg scan pages.
-import { db, remove, next, commit, consume, addLot, usableQty, KEG_STATES, moveKeg } from '../store.js';
+import { db, remove, next, commit, consume, addLot, receiveLot, logAct, guardLock, usableQty, KEG_STATES, moveKeg } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, addDays, daysBetween, downloadCsv } from '../util.js';
 import { head, btn, link, pill, statusCls, panel, table, kpi, metric, openForm, qr, seg } from '../ui.js';
-import { mat, rec, vendor, cust, keg, tank, reserved, mrp, approvedQty, pendingLots, expiryOf, kegStats } from '../calc.js';
+import { mat, rec, vendor, cust, keg, tank, reserved, mrp, approvedQty, pendingLots, expiryOf, kegStats, stockValue } from '../calc.js';
 import { drawMap } from '../kegmap.js';
 import { periodSeg, periodRange, periodText } from '../period.js';
 
@@ -60,7 +60,7 @@ export const addScan = form => { addCode(form.code.value, true); form.reset(); f
 export const views = {
   materials() {
     const t = today(), list = db.materials.filter(m => matFilter === 'All' || m.type === matFilter);
-    const value = sum(db.materials, m => m.qty * m.cost);
+    const value = sum(db.materials, stockValue);
     const rows = list.map(m => {
       const res = reserved(m.id), av = approvedQty(m) - res, ex = expiryOf(m), exp = ex ? daysBetween(t, ex) : null, pend = pendingLots(m);
       return `<tr><td><b>${esc(m.name)}</b><small class="sub">${esc(m.type)}${m.vendorId ? ' · ' + esc(vendor(m.vendorId)?.name) : ''}</small></td>
@@ -82,8 +82,8 @@ export const views = {
           <td class="n">${x.suggest ? `<b>${num(x.suggest, 2)} ${esc(x.m.unit)}</b>` : ''}</td><td class="n">${x.suggest ? inr0(x.suggest * x.m.cost) : ''}</td></tr>`)),
         plan.some(x => x.suggest) ? btn('Raise POs from plan', 'mrpPos', '', 'ghost') : '')
       + panel('Purchase orders', table(['PO', 'Date', 'Vendor', 'Items', { t: 'Value', n: 1 }, 'Status', ''], pos.map(p => `<tr><td class="code">${esc(p.no)}</td><td>${fmtDate(p.date)}</td><td>${esc(vendor(p.vendorId)?.name || '')}</td>
-        <td>${p.lines.map(l => `${esc(mat(l.id)?.name || '?')} ${num(l.qty, 2)}`).join(', ')}</td><td class="n">${inr0(sum(p.lines, l => l.qty * l.price))}</td><td>${pill(p.status, statusCls(p.status))}</td>
-        <td class="acts">${p.status === 'Open' ? link('Receive', 'receivePo', p.id) : ''}${link('Delete', 'delPo', p.id, 'del')}</td></tr>`)));
+        <td>${p.lines.map(l => `${esc(mat(l.id)?.name || '?')} ${num(l.got, 2)} of ${num(l.qty, 2)}`).join(', ')}</td><td class="n">${inr0(sum(p.lines, l => l.qty * l.price))}</td><td>${pill(p.status, statusCls(p.status))}</td>
+        <td class="acts">${['Open', 'Part received'].includes(p.status) ? link('Receive', 'receivePo', p.id) : ''}${p.status === 'Part received' ? link('Close short', 'closePo', p.id) : ''}${p.status === 'Open' ? link('Delete', 'delPo', p.id, 'del') : ''}</td></tr>`)));
   },
 
   kegs() {
@@ -112,7 +112,8 @@ export const views = {
   scan(code) {
     const k = db.kegs.find(x => x.code === code), tk = db.tanks.find(x => x.name === code), e = db.equipment.find(x => x.code === code);
     if (tk) { location.replace('#tanks'); return ''; }
-    if (e) return head(esc(e.name), `${esc(e.code)} · ${esc(e.type)}`) + panel('', `<p>Last service ${fmtDate(e.lastService)}. Service every ${e.serviceDays} days.</p>${btn('Mark serviced today', 'serviced', e.id)}`);
+    if (e) return head(esc(e.name), `${esc(e.code)} · ${esc(e.type)}`) + panel('', `<p>Last service ${fmtDate(e.lastService)}. Service every ${e.serviceDays} days.</p><div class="card-acts">${btn('Log service', 'serviced', e.id)}${btn('Log breakdown', 'breakdown', e.id, 'ghost')}</div>`)
+      + panel('History', e.log.length ? table(['Date', 'Kind', 'Note', { t: 'Cost', n: 1 }, { t: 'Down hours', n: 1 }], [...e.log].reverse().map(x => `<tr><td>${fmtDate(x.date)}</td><td>${pill(x.kind, x.kind === 'Breakdown' ? 'low' : 'ok')}</td><td>${esc(x.note)}</td><td class="n">${x.cost ? inr0(x.cost) : ''}</td><td class="n">${x.hours || ''}</td></tr>`)) : '<p class="empty">No service or breakdown logged yet.</p>');
     if (!k) return head('Not found', `No keg, tank or machine has the code ${esc(code)} in this browser.`) + '<p class="note">Data lives in the browser that recorded it. Open the app on that device, or import its backup here.</p>';
     const b = db.batches.find(x => x.id === k.batchId);
     const acts = { Empty: [], Filled: [['Dispatch', 'newDispatch']], 'At customer': [['Picked up', 'kegPickup'], ['Mark lost', 'kegLost']], Cleaning: [['Cleaned, now empty', 'kegClean']], Lost: [['Found, back for cleaning', 'kegFound']] }[k.status];
@@ -158,6 +159,9 @@ function poForm(vals, rows) {
     onSave: (v, lines) => { if (!lines.length) { toast('Add at least one line'); return false; } db.pos.push({ id: uid(), no: next('po', 'PO', 4), status: 'Open', ...v, lines }); toast('Purchase order raised'); } });
 }
 
+const usedIn = lotId => db.batches.filter(b => b.issues.some(i => i.lots.some(x => x.lotId === lotId)));
+const codeTaken = (code, id = '') => { const hit = db.equipment.some(e => e.code.toLowerCase() === code.toLowerCase() && e.id !== id); if (hit) toast(`${code} is already used by another machine`); return hit; };
+
 export const actions = {
   newMat() { openForm({ title: 'Add material', fields: MAT_FIELDS(), vals: { type: 'Malt', unit: 'kg' }, onSave: v => { const m = { id: uid(), ...v, qty: 0, qc: 'Approved', lots: [] }; if (v.qty) addLot(m, { qty: v.qty, qc: 'Approved', expiry: v.expiry, date: today(), ref: 'Opening stock' }); db.materials.push(m); } }); },
   editMat(id) { const m = mat(id); openForm({ title: `Edit ${m.name}`, fields: MAT_FIELDS(true), vals: m, note: 'Stock changes go through Receive, Use / waste or a stock take, so every movement is on record.', onSave: v => { const { qty, expiry, ...rest } = v; Object.assign(m, rest); } }); },
@@ -169,11 +173,21 @@ export const actions = {
     const m = mat(id), md = document.getElementById('modal');
     const render = () => {
       md.innerHTML = `<div class="sheet"><div class="grabber"></div><div class="sheet-head"><span></span><h2>${esc(m.name)} lots</h2><button class="link strong" data-close>Done</button></div><div class="sheet-body">
-        ${table(['Received', 'Ref', { t: 'Qty', n: 1 }, 'Expiry', 'QC', ''], m.lots.map(l => `<tr><td>${fmtDate(l.date) || 'Opening'}</td><td>${esc(l.ref)}</td><td class="n">${num(l.qty, 3)} ${esc(m.unit)}</td><td>${fmtDate(l.expiry)}</td>
-          <td>${pill(l.qc, statusCls(l.qc))}</td><td class="acts">${l.qc !== 'Approved' ? `<button class="link" data-lot="${l.id}" data-qc="Approved">Approve</button>` : ''}${l.qc !== 'Rejected' ? `<button class="link del" data-lot="${l.id}" data-qc="Rejected">Reject</button>` : ''}</td></tr>`))}
-        <p class="note">Only approved lots count as available. Issues use approved stock first, earliest expiry first. Rejected stock stays on record until it is written off with Use / waste.</p></div></div>`;
+        ${table(['Received', 'Ref', { t: 'Qty', n: 1 }, { t: 'Cost', n: 1 }, 'Expiry', 'QC', 'Used in', ''], m.lots.map(l => `<tr><td>${fmtDate(l.date) || 'Opening'}</td><td>${esc(l.ref)}</td><td class="n">${num(l.qty, 3)} ${esc(m.unit)}</td><td class="n">${inr(l.cost || m.cost)}</td><td>${fmtDate(l.expiry)}</td>
+          <td>${pill(l.qc, statusCls(l.qc))}</td><td>${usedIn(l.id).map(b => `<a class="code" href="#blr/${b.id}">${esc(b.code)}</a>`).join(' ')}</td>
+          <td class="acts">${l.qc !== 'Approved' ? `<button class="link" data-lot="${l.id}" data-qc="Approved">Approve</button>` : ''}${l.qc !== 'Rejected' ? `<button class="link del" data-lot="${l.id}" data-qc="Rejected">Reject</button>` : l.qty > 0 ? `<button class="link" data-rtv="${l.id}">Return to vendor</button>` : ''}</td></tr>`))}
+        <p class="note">Only approved lots count as available. Issues use approved stock first, earliest expiry first. Used in lists every batch that drew from a lot, for a supplier recall. Rejected stock goes back to the vendor or is written off with Use / waste.</p></div></div>`;
       md.querySelector('[data-close]').onclick = () => md.close();
-      md.querySelectorAll('[data-lot]').forEach(b => { b.onclick = () => { m.lots.find(l => l.id === b.dataset.lot).qc = b.dataset.qc; commit(); render(); }; });
+      md.querySelectorAll('[data-lot]').forEach(b => { b.onclick = () => { const l = m.lots.find(x => x.id === b.dataset.lot); l.qc = b.dataset.qc; logAct(`Lot ${l.qc.toLowerCase()}`, m.name, l.ref); commit(); render(); }; });
+      // A rejected lot sent back leaves stores at its own cost and is logged for the vendor debit note.
+      md.querySelectorAll('[data-rtv]').forEach(b => { b.onclick = () => {
+        const l = m.lots.find(x => x.id === b.dataset.rtv);
+        if (!guardLock(today()) || !confirm(`Return ${num(l.qty, 3)} ${m.unit} of ${m.name} (${l.ref || 'lot'}) to ${vendor(m.vendorId)?.name || 'the vendor'}?`)) return;
+        const qty = l.qty, lots = consume(m, qty, { allowRejected: true });
+        db.wastage.push({ id: uid(), date: today(), kind: 'Material', ref: m.id, qty, reason: `Returned to vendor${l.ref ? ', ' + l.ref : ''}`, lots: lots.filter(x => x.lotId === l.id) });
+        logAct('Returned to vendor', m.name, `${num(qty, 3)} ${m.unit}, ${inr0(sum(lots, x => x.cost))}`);
+        commit(); render();
+      }; });
     };
     render();
     md.showModal();
@@ -182,7 +196,7 @@ export const actions = {
     const m = mat(id);
     openForm({ title: `Receive ${m.name}`, vals: { qty: '', cost: m.cost, expiry: '' },
       fields: [{ k: 'qty', label: `Quantity (${m.unit})`, type: 'number' }, { k: 'cost', label: 'Cost per unit (₹)', type: 'number' }, { k: 'expiry', label: 'Expiry', type: 'date' }],
-      onSave: v => { if (!v.qty) { toast('Enter the quantity received'); return false; } m.cost = v.cost || m.cost; addLot(m, { qty: v.qty, expiry: v.expiry, cost: m.cost, date: today(), ref: 'Direct receipt' }); toast(`${num(v.qty, 2)} ${m.unit} received, waiting for QC`); } });
+      onSave: v => { if (!v.qty) { toast('Enter the quantity received'); return false; } receiveLot(m, { qty: v.qty, expiry: v.expiry, cost: v.cost || m.cost, date: today(), ref: 'Direct receipt' }); toast(`${num(v.qty, 2)} ${m.unit} received, waiting for QC`); } });
   },
   wasteMat(id) {
     const m = mat(id);
@@ -200,14 +214,28 @@ export const actions = {
     toast(`${Object.keys(byVendor).length} purchase order${Object.keys(byVendor).length > 1 ? 's' : ''} raised`);
     commit();
   },
+  // Receive what actually arrived, line by line, against the vendor's invoice. A short delivery leaves the order open
+  // for the rest; an invoice that does not match quantity x rate is flagged before it is accepted.
   receivePo(id) {
-    const p = db.pos.find(x => x.id === id);
-    for (const l of p.lines) { const m = mat(l.id); if (m) { m.cost = l.price || m.cost; addLot(m, { qty: l.qty, cost: m.cost, date: today(), ref: p.no }); } }
-    p.status = 'Received';
-    toast(`${p.no} received into stores, waiting for QC`);
-    commit();
+    const p = db.pos.find(x => x.id === id), left = p.lines.map(l => Math.max(0, +(l.qty - l.got).toFixed(3)));
+    openForm({ title: `Receive ${p.no}`, vals: { ...Object.fromEntries(left.map((q, i) => ['r' + i, q])), date: today() },
+      fields: [...p.lines.map((l, i) => ({ k: 'r' + i, label: `${mat(l.id)?.name || '?'} received (${num(left[i], 2)} ${mat(l.id)?.unit || ''} due)`, type: 'number' })),
+        { k: 'date', label: 'Date', type: 'date' }, { k: 'invoiceNo', label: 'Vendor invoice number' }, { k: 'invoiceAmt', label: 'Vendor invoice amount before tax (₹)', type: 'number', blank: 1 }],
+      onSave: v => {
+        const got = p.lines.map((l, i) => v['r' + i] || 0);
+        if (!got.some(x => x > 0)) { toast('Enter what arrived on at least one line'); return false; }
+        if (got.some((x, i) => x > left[i] * 1.1 + 1e-9)) { toast('More than 10% over the order on a line. Raise a new order for the extra.'); return false; }
+        const value = +sum(p.lines.map((l, i) => got[i] * l.price), x => x).toFixed(2);
+        if (v.invoiceAmt !== '' && Math.abs(v.invoiceAmt - value) > Math.max(1, value * 0.01) && !confirm(`Vendor invoice ₹${v.invoiceAmt} does not match the order value for what arrived, ₹${value}. Receive anyway?`)) return false;
+        p.lines.forEach((l, i) => { const m = mat(l.id); if (m && got[i] > 0) { receiveLot(m, { qty: got[i], cost: l.price || m.cost, date: v.date, ref: `${p.no}${v.invoiceNo ? ' / ' + v.invoiceNo : ''}` }); l.got = +(l.got + got[i]).toFixed(3); } });
+        p.receipts = [...p.receipts, { date: v.date, invoiceNo: v.invoiceNo, invoiceAmt: v.invoiceAmt === '' ? 0 : v.invoiceAmt, value }];
+        p.status = p.lines.every(l => l.got >= l.qty - 1e-9) ? 'Received' : 'Part received';
+        logAct('Goods received', p.no, `${inr0(value)}${v.invoiceNo ? ', invoice ' + v.invoiceNo : ''}`);
+        toast(`${p.no} ${p.status === 'Received' ? 'received in full' : 'part received'}, waiting for QC`);
+      } });
   },
-  delPo(id) { if (db.pos.find(p => p.id === id)?.status === 'Received') return toast('This order has been received into stores, so it stays on file'); remove('pos', id, 'purchase order'); },
+  closePo(id) { const p = db.pos.find(x => x.id === id); if (!confirm(`Close ${p.no} short? Nothing more is expected on it.`)) return; p.status = 'Closed short'; logAct('PO closed short', p.no); commit(); },
+  delPo(id) { if (db.pos.find(p => p.id === id)?.lines.some(l => l.got > 0)) return toast('Goods have been received on this order, so it stays on file'); remove('pos', id, 'purchase order'); },
 
   newKeg() {
     openForm({ title: 'Add kegs', vals: { size: 30, count: 1, codes: '' }, fields: [{ k: 'size', label: 'Size', type: 'select', options: [{ v: 20, t: '20 L' }, { v: 30, t: '30 L' }, { v: 50, t: '50 L' }] }, { k: 'count', label: 'How many', type: 'number' },
@@ -290,9 +318,19 @@ export const actions = {
     m.querySelector('[data-print]').onclick = () => { document.getElementById('print').innerHTML = m.querySelector('.qr-label').outerHTML; window.print(); };
     m.showModal();
   },
-  newEq() { openForm({ title: 'Add equipment', fields: EQ_FIELDS, vals: { lastService: today(), serviceDays: 90 }, onSave: v => { db.equipment.push({ id: uid(), ...v }); } }); },
-  editEq(id) { const e = db.equipment.find(x => x.id === id); openForm({ title: `Edit ${e.name}`, fields: EQ_FIELDS, vals: e, onSave: v => { Object.assign(e, v); } }); },
-  serviced(id) { db.equipment.find(x => x.id === id).lastService = today(); toast('Service recorded'); commit(); },
+  newEq() { openForm({ title: 'Add equipment', fields: EQ_FIELDS, vals: { lastService: today(), serviceDays: 90 }, onSave: v => { if (codeTaken(v.code)) return false; db.equipment.push({ id: uid(), ...v, log: [] }); } }); },
+  editEq(id) { const e = db.equipment.find(x => x.id === id); openForm({ title: `Edit ${e.name}`, fields: EQ_FIELDS, vals: e, onSave: v => { if (codeTaken(v.code, id)) return false; Object.assign(e, v); } }); },
+  // Every service and breakdown is kept, so downtime and repair cost can be read back per machine.
+  serviced(id) {
+    const e = db.equipment.find(x => x.id === id);
+    openForm({ title: `Service ${e.name}`, vals: { date: today() }, fields: [{ k: 'date', label: 'Date', type: 'date' }, { k: 'note', label: 'Work done', wide: 1 }, { k: 'cost', label: 'Cost (₹)', type: 'number' }],
+      onSave: v => { e.log = [...e.log, { date: v.date, kind: 'Service', note: v.note, cost: v.cost, hours: 0 }]; if (v.date > e.lastService) e.lastService = v.date; toast('Service recorded'); } });
+  },
+  breakdown(id) {
+    const e = db.equipment.find(x => x.id === id);
+    openForm({ title: `Breakdown on ${e.name}`, vals: { date: today() }, fields: [{ k: 'date', label: 'Date', type: 'date' }, { k: 'note', label: 'What failed and the fix', req: 1, wide: 1 }, { k: 'cost', label: 'Repair cost (₹)', type: 'number' }, { k: 'hours', label: 'Hours out of use', type: 'number' }],
+      onSave: v => { e.log = [...e.log, { date: v.date, kind: 'Breakdown', ...v }]; logAct('Breakdown', e.code, v.note); toast('Breakdown logged'); } });
+  },
   delEq(id) { remove('equipment', id, 'equipment'); },
 };
 

@@ -26,6 +26,7 @@ export function demo() {
     m('WB-06 (500 g)', 'Yeast', 'pack', 4, 2, 6200, { atten: 75, vendorId: vYeast, expiry: ahead(120) }),
     m('W-34/70 (500 g)', 'Yeast', 'pack', 2, 4, 6800, { atten: 82, vendorId: vYeast, expiry: ahead(150) }),
     m('CO2', 'Gas', 'kg', 60, 20, 40, { vendorId: vGas }),
+    m('Cans 330 ml', 'Packaging', 'each', 1500, 500, 9), m('Can ends', 'Packaging', 'each', 1500, 500, 2.5),
     m('Caustic soda', 'Chemical', 'kg', 25, 10, 120, { vendorId: vGas }),
     m('Phosphoric acid', 'Chemical', 'L', 15, 5, 300, { vendorId: vGas }),
     m('Peracetic sanitiser', 'Chemical', 'L', 4, 5, 450, { vendorId: vGas }),
@@ -55,8 +56,8 @@ export function demo() {
     issued: status !== 'Planned', issues: status !== 'Planned' ? issues(rc, volume) : [], log: [], brew: { mashTemp: '', steps: [], preBoil: '', og: '', volume: '', pitchTemp: '', notes: '' }, ...extra,
   });
   const batches = [
-    b('B-001', ipa, daysAgo(34), 'Ready', 500, 1.058, 1.013, 'BBT-1', { readyDate: daysAgo(14), dutyRate: 50, dutyL: 486, transfers: [{ date: daysAgo(16), fromId: T('FV-1'), toId: T('BBT-1'), litresOut: 492, litresIn: 486 }], log: curve(33, 1.058, 1.013, 12, 19), brew: { mashTemp: '', steps: [66.5, 76], preBoil: 1.049, og: 1.058, volume: 500, pitchTemp: 18, notes: 'Smooth brew day' } }),
-    b('B-002', wit, daysAgo(18), 'Ready', 495, 1.049, 1.012, 'BBT-2', { readyDate: daysAgo(3), dutyRate: 50, dutyL: 483, transfers: [{ date: daysAgo(4), fromId: T('FV-3'), toId: T('BBT-2'), litresOut: 488, litresIn: 483 }], log: curve(17, 1.049, 1.012, 10, 20), brew: { mashTemp: '', steps: [51, 65.5, 76], preBoil: 1.042, og: 1.049, volume: 495, pitchTemp: 19, notes: '' } }),
+    b('B-001', ipa, daysAgo(34), 'Ready', 500, 1.058, 1.013, 'BBT-1', { release: { abv: '', ph: 4.3, sensory: 'Clean, true to style', result: 'Pass', by: 'Head brewer', date: daysAgo(15) }, readyDate: daysAgo(14), dutyRate: 50, dutyL: 486, transfers: [{ date: daysAgo(16), fromId: T('FV-1'), toId: T('BBT-1'), litresOut: 492, litresIn: 486 }], log: curve(33, 1.058, 1.013, 12, 19), brew: { mashTemp: '', steps: [66.5, 76], preBoil: 1.049, og: 1.058, volume: 500, pitchTemp: 18, notes: 'Smooth brew day' } }),
+    b('B-002', wit, daysAgo(18), 'Ready', 495, 1.049, 1.012, 'BBT-2', { release: { abv: '', ph: 4.3, sensory: 'Clean, true to style', result: 'Pass', by: 'Head brewer', date: daysAgo(15) }, readyDate: daysAgo(3), dutyRate: 50, dutyL: 483, transfers: [{ date: daysAgo(4), fromId: T('FV-3'), toId: T('BBT-2'), litresOut: 488, litresIn: 483 }], log: curve(17, 1.049, 1.012, 10, 20), brew: { mashTemp: '', steps: [51, 65.5, 76], preBoil: 1.042, og: 1.049, volume: 495, pitchTemp: 19, notes: '' } }),
     b('B-003', helles, daysAgo(10), 'Conditioning', 505, 1.052, 1.010, 'FV-2', { log: curve(9, 1.052, 1.010, 10, 11), brew: { mashTemp: '', steps: [60.5, 71, 77], preBoil: 1.045, og: 1.052, volume: 505, pitchTemp: 10, notes: 'Mash ran cold, HLT element tripped' } }),
     b('B-004', ipa, daysAgo(3), 'Fermenting', 480, 1.053, 1.013, 'FV-1', { log: curve(2, 1.053, 1.013, 3, 19), brew: { mashTemp: '', steps: [66, 75.5], preBoil: 1.045, og: 1.053, volume: 480, pitchTemp: 18, notes: 'Short on volume, sparge stuck' } }),
     b('B-005', wit, ahead(4), 'Planned', 500, 0, 0, 'FV-3'),
@@ -129,7 +130,7 @@ export function demo() {
   });
 
   return {
-    settings: { brewhouse: { type: '2 vessel', lengthHL: 5, mashTun: 750, lauterTun: 0, kettle: 650, whirlpool: true, boilRate: 8, boilMins: 60, deadSpace: 20, cycleHrs: 7, hlt: 1000, hltTemp: 80, clt: 1000, cltTemp: 4, hx: 'Two-stage plate' }, name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, kegValue: 9000, lastBackup: daysAgo(2) },
+    settings: { brewhouse: { type: '2 vessel', lengthHL: 5, mashTun: 750, lauterTun: 0, kettle: 650, whirlpool: true, boilRate: 8, boilMins: 60, deadSpace: 20, cycleHrs: 7, hlt: 1000, hltTemp: 80, clt: 1000, cltTemp: 4, hx: 'Two-stage plate' }, name: 'Hoppy Monk Brewpub', gstin: '29ABCDE1234F1Z5', address: '12, 100 Feet Road, Indiranagar, Bengaluru 560038', state: 'Karnataka', prefix: 'HM', exciseRate: 50, vat: 10, foodGst: 5, efficiency: 72, grainAbsorb: 1, dryHopAbsorb: 5, cipDays: 3, lossTarget: 5, lossAllow: 2, exciseBasis: 'Ready', tradeRateL: 260, kegValue: 9000, packBom: [{ format: 'Can 330 ml', id: M('Cans 330 ml'), qty: 1 }, { format: 'Can 330 ml', id: M('Can ends'), qty: 1 }, { format: 'Can 330 ml', id: M('CO2'), qty: 0.002 }], lastBackup: daysAgo(2) },
     seq: { batch: 6, inv: sales.length + 1, po: 2, disp: 2, keg: 13, count: 2 },
     materials, recipes, products, tanks, batches, sales, kegs, customers, vendors, packs, dispatches,
     equipment: [

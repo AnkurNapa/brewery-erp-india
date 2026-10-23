@@ -1,10 +1,10 @@
 // Menu, taproom invoices, dispatch to trade customers, customer and vendor masters.
-import { db, remove, next, nextDoc, commit, moveKeg, undoKeg, logAct, guardLock, HSN, PAY_MODES } from '../store.js';
+import { db, remove, next, nextDoc, commit, moveKeg, undoKeg, logAct, guardLock, HSN, PAY_MODES, FORMATS } from '../store.js';
 import { esc, num, inr, inr0, today, fmtDate, sum, uid, toast, daysBetween, addDays } from '../util.js';
 import { head, btn, link, pill, panel, table, kpi, openForm, seg } from '../ui.js';
 import { parseLoc } from '../kegmap.js';
 import { periodSeg, periodText, inPeriod } from '../period.js';
-import { rec, prod, cust, keg, pack, invoice, packLeft, beerStock, removalDutyOn, balance, paid, receivables, AGE_BUCKETS, lineL } from '../calc.js';
+import { rec, prod, cust, keg, pack, batch, invoice, packLeft, beerStock, removalDutyOn, balance, paid, receivables, AGE_BUCKETS, lineL } from '../calc.js';
 
 let partnerTab = 'customers';
 
@@ -87,6 +87,7 @@ const PROD_FIELDS = () => [
   { k: 'recipeId', label: 'Beer', type: 'select', options: [{ v: '', t: 'None' }, ...db.recipes.map(r => ({ v: r.id, t: r.name }))] },
   { k: 'ml', label: 'Serve size (ml)', type: 'number' }, { k: 'price', label: 'Price before tax (₹)', type: 'number' },
   { k: 'hsn', label: 'HSN or SAC (beer 2203, food 996331)' },
+  { k: 'from', label: 'Served from', type: 'select', options: ['Draught', ...Object.keys(FORMATS).filter(f => !f.startsWith('Keg'))].map(f => ({ v: f, t: f === 'Draught' ? 'Draught, from the tank' : `${f}, from packed stock` })) },
 ];
 const CUST_FIELDS = [
   { k: 'name', label: 'Name', req: 1 }, { k: 'type', label: 'Type', list: ['Bar', 'Restaurant', 'Retail', 'Distributor', 'Event'] },
@@ -136,17 +137,25 @@ export const actions = {
       live: (v, rows) => { const c = invoice({ vat: db.settings.vat, gst: db.settings.foodGst, lines: rows.map(r => ({ kind: prod(r.id)?.kind, qty: r.qty, price: r.price })) }); return `<p class="total">Total <b>${inr(c.total)}</b></p>`; },
       onSave: (v, lines) => {
         if (!lines.length) { toast('Add at least one line'); return false; }
-        const need = {};
-        for (const l of lines) { const p = prod(l.id); if (p?.kind === 'beer' && p.recipeId) need[p.recipeId] = (need[p.recipeId] || 0) + l.qty * p.ml / 1000; }
+        const need = {}, packs = {};
+        for (const l of lines) {
+          const p = prod(l.id);
+          if (p?.kind !== 'beer' || !p.recipeId) continue;
+          if (p.from && p.from !== 'Draught') packs[`${p.recipeId}|${p.from}`] = (packs[`${p.recipeId}|${p.from}`] || 0) + l.qty;
+          else need[p.recipeId] = (need[p.recipeId] || 0) + l.qty * p.ml / 1000;
+        }
+        // Packed beer sold over the bar must be in packed stock, checked per beer and format.
+        const packShort = Object.entries(packs).map(([k, q]) => { const [rid, f] = k.split('|'), have = sum(db.packs.filter(x => x.format === f && batch(x.batchId)?.recipeId === rid), packLeft); return q > have ? `${rec(rid)?.name} ${f} (${have} in stock)` : ''; }).filter(Boolean);
+        if (packShort.length) { toast(`Not enough packed: ${packShort.join(', ')}`); return false; }
         const short = beerStock().filter(s => need[s.r.id] > Math.max(0, s.draught) + 0.01).map(s => `${s.r.name} (${Math.max(0, s.draught).toFixed(1)} L on tap)`);
         if (short.length && !confirm(`Not enough beer on tap: ${short.join(', ')}.\nSave the invoice anyway?`)) return false;
         const c = db.customers.find(x => x.name === v.customer);
-        const saleLines = lines.map(l => ({ pid: l.id, kind: prod(l.id)?.kind, qty: l.qty, ml: prod(l.id)?.ml || 0, recipeId: prod(l.id)?.recipeId || '' }));
+        const saleLines = lines.map(l => ({ pid: l.id, kind: prod(l.id)?.kind, qty: l.qty, ml: prod(l.id)?.ml || 0, recipeId: prod(l.id)?.recipeId || '', from: prod(l.id)?.from || '' }));
         const { pay, ...head } = v, credit = pay === 'credit';
         if (credit && !c) { toast('Credit is for customers on file. Add them under Customers first.'); return false; }
         db.sales.push({ id: uid(), no: nextDoc('inv', db.settings.prefix), ...head, gstin: v.gstin || c?.gstin || '', vat: db.settings.vat, gst: db.settings.foodGst, dispatchId: '', duty: removalDutyOn(saleLines),
           type: 'Invoice', mode: credit ? '' : pay, credit, dueDate: credit ? addDays(v.date, c.terms || 30) : '', payments: [],
-          lines: lines.map(l => { const p = prod(l.id); return { pid: p.id, name: p.name, kind: p.kind, qty: l.qty, price: l.price, ml: p.ml, recipeId: p.recipeId, hsn: p.hsn || HSN[p.kind] }; }) });
+          lines: lines.map(l => { const p = prod(l.id); return { pid: p.id, name: p.name, kind: p.kind, qty: l.qty, price: l.price, ml: p.ml, recipeId: p.recipeId, hsn: p.hsn || HSN[p.kind], from: p.from || '' }; }) });
         toast('Invoice saved');
       },
     });

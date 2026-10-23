@@ -127,6 +127,8 @@ test('9 excise: booked at Ready, or on removal when set', async ({ page }) => {
   const r = await run(page, async () => {
     const s = await import('/js/store.js'), brew = await import('/js/views/brew.js');
     const b3 = s.db.batches.find(b => b.code === 'B-003');
+    const pass = { abv: 5, ph: 4.3, sensory: 'Clean', result: 'Pass', by: 'QC', date: '2026-01-01' };
+    s.db.batches.filter(b => ['B-003', 'B-004'].includes(b.code)).forEach(b => { b.release = pass; });
     brew.setStatus(b3.id, 'Ready');
     s.db.settings.exciseBasis = 'Removal';
     const b4 = s.db.batches.find(b => b.code === 'B-004');
@@ -190,14 +192,17 @@ test('13 keg return: collect list, pick up, wash logs CIP', async ({ page }) => 
 test('14 purchasing: MRP, receive into pending lot, approve', async ({ page }) => {
   await fresh(page, 'purchasing');
   await page.getByRole('button', { name: 'Raise POs from plan' }).click();
-  const r = await run(page, async () => {
-    const s = await import('/js/store.js'), c = await import('/js/calc.js'), st = await import('/js/views/stores.js');
-    const po = s.db.pos.find(p => p.status === 'Open'), m = s.db.materials.find(x => x.id === po.lines[0].id), a0 = c.approvedQty(m);
-    st.actions.receivePo(po.id);
+  const po = await run(page, async () => { const s = await import('/js/store.js'), c = await import('/js/calc.js'); const p = s.db.pos.find(x => x.status === 'Open'); return { no: p.no, a0: c.approvedQty(s.db.materials.find(x => x.id === p.lines[0].id)) }; });
+  await page.locator('tr', { hasText: po.no }).getByRole('button', { name: 'Receive' }).click();
+  await sheet(page);
+  const r = await run(page, async ([no, a0]) => {
+    const s = await import('/js/store.js'), c = await import('/js/calc.js');
+    const p = s.db.pos.find(x => x.no === no), m = s.db.materials.find(x => x.id === p.lines[0].id);
     const pending = c.pendingLots(m).length, a1 = c.approvedQty(m);
     c.pendingLots(m).forEach(l => { l.qc = 'Approved'; });
-    return { pending, same: a0 === a1, after: c.approvedQty(m) > a1 };
-  });
+    return { pending, same: a0 === a1, after: c.approvedQty(m) > a1, status: p.status };
+  }, [po.no, po.a0]);
+  expect(r.status).toBe('Received');
   expect(r.pending).toBeGreaterThan(0);
   expect(r.same).toBe(true);
   expect(r.after).toBe(true);
@@ -232,7 +237,9 @@ test('17 maintenance: servicing clears the alert', async ({ page }) => {
   const has = () => run(page, async () => (await import('/js/calc.js')).alerts().some(a => a.text.startsWith('Glycol chiller service')));
   expect(await has()).toBe(true);
   await page.locator('tr', { hasText: 'Glycol chiller' }).getByRole('button', { name: 'Serviced today' }).click();
+  await sheet(page, { note: 'Refrigerant topped up', cost: 4500 });
   expect(await has()).toBe(false);
+  expect(await db(page, d => d.equipment.find(e => /Glycol/.test(e.name)).log.at(-1))).toMatchObject({ kind: 'Service', cost: 4500 });
 });
 
 test('18 utilities: a bill raises cost per litre', async ({ page }) => {
@@ -643,6 +650,70 @@ test('43 audit wave 3: credit sales, payments, credit notes, ageing and GST invo
   // A new financial year starts the series again.
   await run(page, async () => { const s = await import('/js/store.js'); s.db.settings.docYear = '2019-20'; s.db.seq.inv = 57; });
   expect(await run(page, async () => (await import('/js/store.js')).nextDoc('inv', 'HM'))).toBe(`HM/${fy}/0001`);
+});
+
+test('44 audit wave 4: genealogy, valuation, receipts, packaging, QC release and costing', async ({ page }) => {
+  await fresh(page, 'batches');
+  const r = await run(page, async () => {
+    const s = await import('/js/store.js'), c = await import('/js/calc.js'), brew = await import('/js/views/brew.js');
+    const out = {};
+    // Genealogy: issuing B-005 records the lots it drew.
+    const b5 = s.db.batches.find(b => b.code === 'B-005');
+    const day = (await import('/js/util.js')).today();
+    s.db.tanks.forEach(t => { t.hygiene = 'Sanitised'; t.cleanedOn = day; });
+    brew.setStatus(b5.id, 'Brewing');
+    out.lots = b5.issues.every(i => i.lots.length > 0);
+    out.cost = Math.abs(c.batchCost(b5) - b5.issues.reduce((a, i) => a + i.lots.reduce((x, l) => x + l.cost, 0), 0)) < 0.01;
+    // Moving average: 100 kg at 60 plus 100 kg at 90 is 75.
+    const m = { id: 'x', name: 'Test malt', qty: 100, cost: 60, lots: [{ id: 'a', qty: 100, qc: 'Approved', cost: 60, date: '', expiry: '', ref: '' }] };
+    s.receiveLot(m, { qty: 100, cost: 90, qc: 'Pending' });
+    out.avg = m.cost;
+    // QC gate: no release, no Ready.
+    const b3 = s.db.batches.find(b => b.code === 'B-003');
+    brew.setStatus(b3.id, 'Ready');
+    out.b3 = b3.status;
+    // COGS uses actual batch cost where a batch was brewed in the period.
+    out.basis = c.cogs('2000-01-01').map(x => x.basis);
+    return out;
+  }).catch(e => ({ err: String(e) }));
+  expect(r).toMatchObject({ lots: true, cost: true, avg: 75, b3: 'Conditioning' });
+  expect(r.basis).toContain('Actual');
+
+  // Partial receipt: the PO stays open for the rest.
+  await go(page, 'purchasing');
+  await page.getByRole('button', { name: 'Raise POs from plan' }).click();
+  const po = await db(page, d => d.pos.find(p => p.status === 'Open').no);
+  await page.locator('tr', { hasText: po }).getByRole('button', { name: 'Receive' }).click();
+  await sheet(page, { r0: 1, invoiceNo: 'VB-77' });
+  expect(await db(page, `d => d.pos.find(p => p.no === '${po}').status`)).toBe('Part received');
+
+  // A can run takes cans, ends and CO2 from stores and costs them to the batch.
+  const cans = () => db(page, d => d.materials.find(m => m.name === 'Cans 330 ml').qty);
+  const c0 = await cans();
+  await go(page, 'packaging');
+  await page.getByRole('button', { name: 'Package beer' }).first().click();
+  await page.locator('#modal [name="format"]').selectOption('Can 330 ml');
+  await sheet(page, { units: 24 });
+  expect(await cans()).toBe(c0 - 24);
+  expect(await db(page, d => d.packs.at(-1).mats.length)).toBe(3);
+
+  // Cans sold over the bar come off packed stock, not the tank.
+  const cansOf = async () => run(page, async () => { const c = await import('/js/calc.js'), s = await import('/js/store.js'); const p = s.db.packs.at(-1), b = s.db.batches.find(x => x.id === p.batchId); const same = s.db.packs.filter(x => x.format === p.format && s.db.batches.find(y => y.id === x.batchId)?.recipeId === b.recipeId); return { left: same.reduce((a, x) => a + c.packLeft(x), 0), tank: c.tankLeft(b), rid: b.recipeId }; });
+  const before = await cansOf();
+  await run(page, async ([rid]) => { const s = await import('/js/store.js'); s.db.products.push({ id: 'canipa', name: 'Can', kind: 'beer', recipeId: rid, ml: 330, price: 250, hsn: '2203', from: 'Can 330 ml' }); s.commit(); }, [before.rid]);
+  await go(page, 'sales');
+  await page.getByRole('button', { name: 'New invoice' }).click();
+  await page.locator('#modal [name="l_id"]').first().selectOption('canipa');
+  await sheet(page, {});
+  const after = await cansOf();
+  expect(after.left).toBe(before.left - 1);
+  expect(after.tank).toBeCloseTo(before.tank, 3);
+
+  // Machines keep a breakdown history; codes stay unique.
+  await go(page, 'scan/EQ-03');
+  await page.getByRole('button', { name: 'Log breakdown' }).click();
+  await sheet(page, { note: 'Compressor tripped', cost: 6000, hours: 5 });
+  await expect(page.locator('section', { hasText: 'History' })).toContainText('Compressor tripped');
 });
 
 test('36 customer map location: parses lat, long and rejects junk', async ({ page }) => {

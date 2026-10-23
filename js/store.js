@@ -11,6 +11,7 @@ export const KEG_STATES = ['Empty', 'Filled', 'At customer', 'Cleaning', 'Lost']
 export const HYGIENE = ['Cleaned', 'Sanitised', 'Dirty'];
 export const CIP_CYCLES = ['Full CIP', 'Caustic', 'Acid', 'Sanitiser', 'Rinse'];
 export const LOSS_STAGES = ['Fermentation', 'Transfer', 'Packaging', 'Taproom', 'Dispatch', 'QC samples', 'Dump', 'Unexplained'];
+export const FORMATS = { 'Keg 30 L': 30, 'Keg 50 L': 50, 'Can 330 ml': 0.33, 'Bottle 330 ml': 0.33, 'Bottle 650 ml': 0.65, 'Growler 2 L': 2 };
 export const PAY_MODES = ['Cash', 'UPI', 'Card', 'Bank transfer', 'Cheque'];
 export const TASK_TYPES = ['Brewing', 'Filling', 'Dispatch', 'Cleaning', 'Maintenance', 'Other'];
 
@@ -28,7 +29,7 @@ const LIST = schema => v => (Array.isArray(v) ? v.map(obj(schema)) : []);
 const IDS = v => (Array.isArray(v) ? v.map(ID) : []);
 
 export const USES = ['Mash', 'Boil', 'Whirlpool', 'Dry hop', 'Pitch', 'Fermenter'];
-const LINE = { id: ID, qty: NUM, price: NUM, time: OPT, use: ONE(['', ...USES]) };
+const LINE = { id: ID, qty: NUM, price: NUM, time: OPT, use: ONE(['', ...USES]), got: NUM };
 export const MASH_STEPS = ['Acid rest', 'Protein rest', 'Beta amylase rest', 'Saccharification', 'Alpha amylase rest', 'Mash out'];
 const MASH = LIST({ step: ONE(MASH_STEPS), temp: NUM, mins: NUM });
 const RSNAP = { name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, items: LIST(LINE), mash: MASH, note: STR };
@@ -38,23 +39,25 @@ const SCHEMA = {
     lots: LIST({ id: ID, date: DATE, qty: NUM, expiry: DATE, qc: ONE(['Approved', 'Pending', 'Rejected']), cost: NUM, ref: STR }),
   },
   recipes: { id: ID, name: STR, style: STR, size: NUM, boilLoss: NUM, trubLoss: NUM, fermLoss: NUM, packLoss: NUM, liquor: NUM, mash: MASH, note: STR, items: LIST(LINE), version: NUM, updated: DATE, history: LIST({ version: NUM, date: DATE, snap: obj(RSNAP) }) },
-  products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM, hsn: STR },
+  products: { id: ID, name: STR, kind: ONE(['beer', 'food']), recipeId: ID, ml: NUM, price: NUM, hsn: STR, from: STR },
   tanks: { id: ID, name: STR, type: STR, capacity: NUM, hygiene: ONE(HYGIENE), cleanedOn: DATE },
   batches: {
     id: ID, code: STR, recipeId: ID, recipeVersion: NUM, date: DATE, status: ONE(STATUSES), volume: NUM, og: NUM, fg: NUM, tankId: ID, notes: STR,
     readyDate: DATE, dutyRate: NUM, dutyL: NUM, issued: BOOL,
+    release: obj({ abv: OPT, ph: OPT, sensory: STR, result: ONE(['', 'Pass', 'Fail']), by: STR, date: DATE }),
     transfers: LIST({ date: DATE, fromId: ID, toId: ID, litresOut: NUM, litresIn: NUM }), issues: LIST({ id: ID, qty: NUM, cost: NUM, lots: LIST({ lotId: ID, qty: NUM, cost: NUM }) }),
     log: LIST({ date: DATE, gravity: OPT, temp: OPT, ph: OPT, note: STR }),
     brew: obj({ mashTemp: OPT, steps: v => (Array.isArray(v) ? v.map(OPT) : []), preBoil: OPT, og: OPT, volume: OPT, pitchTemp: OPT, notes: STR }),
   },
-  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID, hsn: STR }), type: ONE(['Invoice', 'Credit note']), ref: STR, reason: STR, cancelledBy: ID,
+  sales: { id: ID, no: STR, date: DATE, customer: STR, gstin: STR, vat: NUM, gst: NUM, dispatchId: ID, duty: NUM, lines: LIST({ pid: ID, name: STR, kind: ONE(['beer', 'food']), qty: NUM, price: NUM, ml: NUM, recipeId: ID, hsn: STR, from: STR }), type: ONE(['Invoice', 'Credit note']), ref: STR, reason: STR, cancelledBy: ID,
     mode: STR, credit: BOOL, dueDate: DATE, payments: LIST({ date: DATE, amount: NUM, mode: STR, ref: STR }) },
   kegs: { id: ID, code: STR, size: NUM, status: ONE(KEG_STATES), batchId: ID, customerId: ID, since: DATE, history: LIST({ date: DATE, status: ONE(KEG_STATES), batchId: ID, customerId: ID }) },
-  equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM },
+  equipment: { id: ID, code: STR, name: STR, type: STR, lastService: DATE, serviceDays: NUM, log: LIST({ date: DATE, kind: ONE(['Service', 'Breakdown']), note: STR, cost: NUM, hours: NUM }) },
   customers: { id: ID, name: STR, type: STR, gstin: STR, phone: STR, city: STR, lat: GEO(90), lng: GEO(180), terms: NUM },
   vendors: { id: ID, name: STR, gstin: STR, phone: STR, supplies: STR },
-  pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Received']), lines: LIST(LINE) },
-  packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, adjusted: NUM, kegIds: IDS },
+  pos: { id: ID, no: STR, date: DATE, vendorId: ID, status: ONE(['Open', 'Part received', 'Received', 'Closed short']), lines: LIST(LINE),
+    receipts: LIST({ date: DATE, invoiceNo: STR, invoiceAmt: NUM, value: NUM }) },
+  packs: { id: ID, batchId: ID, date: DATE, format: STR, unitL: NUM, units: NUM, adjusted: NUM, kegIds: IDS, mats: LIST({ id: ID, qty: NUM, cost: NUM, lots: LIST({ lotId: ID, qty: NUM, cost: NUM }) }) },
   dispatches: { id: ID, no: STR, date: DATE, customerId: ID, invoiceId: ID, duty: NUM, lines: LIST({ ref: REF, label: STR, qty: NUM, litres: NUM, batchId: ID }), ref: STR, reason: STR, cancelledBy: ID },
   tasks: { id: ID, title: STR, type: ONE(TASK_TYPES), date: DATE, assignee: STR, status: ONE(['Open', 'Done']) },
   utilities: { id: ID, date: DATE, type: STR, qty: NUM, unit: STR, cost: NUM },
@@ -67,7 +70,7 @@ const SCHEMA = {
 };
 export const BREWHOUSE_TYPES = ['2 vessel', '3 vessel', '4 vessel'];
 const BREWHOUSE = obj({ type: ONE(BREWHOUSE_TYPES), lengthHL: NUM, mashTun: NUM, lauterTun: NUM, kettle: NUM, whirlpool: BOOL, boilRate: NUM, boilMins: NUM, deadSpace: NUM, cycleHrs: NUM, hlt: NUM, hltTemp: NUM, clt: NUM, cltTemp: NUM, hx: STR });
-const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, lastBackup: DATE, user: STR, lockedUntil: DATE, docYear: STR };
+const SETTINGS = { brewhouse: BREWHOUSE, name: STR, gstin: STR, address: STR, state: STR, prefix: STR, exciseRate: NUM, vat: NUM, foodGst: NUM, efficiency: NUM, cipDays: NUM, lossTarget: NUM, lossAllow: NUM, grainAbsorb: NUM, dryHopAbsorb: NUM, exciseBasis: ONE(['Ready', 'Removal']), tradeRateL: NUM, kegValue: NUM, packBom: LIST({ format: STR, id: ID, qty: NUM }), lastBackup: DATE, user: STR, lockedUntil: DATE, docYear: STR };
 const SEQ = { batch: NUM, inv: NUM, po: NUM, disp: NUM, keg: NUM, count: NUM, cn: NUM };
 
 export function clean(d) {
@@ -104,6 +107,8 @@ export function clean(d) {
     l.hsn ||= p?.hsn || HSN[l.kind];
   }
   for (const p of out.products) p.hsn ||= HSN[p.kind];
+  // Orders received before part receipts existed were received in full.
+  for (const p of out.pos) if (p.status === 'Received') p.lines.forEach(l => { l.got ||= l.qty; });
   // Older data booked Ready without the litres: use the volume, as the register did then.
   out.batches.forEach((b, i) => { if (b.readyDate && d?.batches?.[i]?.dutyL == null) b.dutyL = b.volume; });
   // Older brew logs kept one mash temperature: it becomes the first step's actual.
@@ -199,6 +204,13 @@ export function restore(m, drawn, ref) {
     if (l) l.qty = +(l.qty + d.qty).toFixed(3); else addLot(m, { qty: d.qty, qc: 'Approved', cost: d.qty ? d.cost / d.qty : m.cost, date: today(), ref });
   }
   m.qty = +m.lots.reduce((a, l) => a + l.qty, 0).toFixed(3);
+}
+// A delivery moves the material's standard price to a weighted average of what is on hand and what came in,
+// instead of the last price overwriting it. The lot keeps its own cost for issues.
+export function receiveLot(m, lot) {
+  const have = Math.max(0, m.qty);
+  m.cost = have + lot.qty > 0 ? +((have * m.cost + lot.qty * lot.cost) / (have + lot.qty)).toFixed(2) : lot.cost;
+  addLot(m, lot);
 }
 export function addLot(m, lot) {
   m.lots.push({ id: Math.random().toString(36).slice(2, 9), date: '', expiry: '', qc: 'Pending', cost: m.cost, ref: '', ...lot });
