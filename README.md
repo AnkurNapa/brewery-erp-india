@@ -18,7 +18,7 @@ It opens with a demo brewpub loaded. Use **Settings > Start empty** when you are
 
 **Recipes.** A mass balance engine: OG, FG, ABV, IBU (Tinseth), colour (Morey, in EBC), volumes at each step (pre-boil, post-boil, fermenter, sellable) and ingredient cost per batch and per sellable litre, recalculated as you build. Every edit saves a new version and batches remember the version they used.
 
-**Production.** Batches move from Planned to Brewing, Fermenting, Conditioning, Ready and Sold out. Ingredients are issued when a batch leaves Planned. A step by step brew log captures mash temperature, gravities, volume and pitch temperature, and flags anything outside tolerance. Fermentation readings (gravity, temperature, pH) draw a curve per tank.
+**Production.** Batches move from Planned to Brewing, Fermenting, Conditioning, Ready and Sold out. Ingredients are issued when a batch leaves Planned. A step by step brew log captures mash temperature, gravities, volume and pitch temperature. Anything outside tolerance is flagged. Fermentation readings (gravity, temperature, pH) draw a curve per tank.
 
 **Packaging.** Kegging, canning and bottling runs. Kegs are picked from empty stock and tagged to the batch.
 
@@ -30,7 +30,7 @@ It opens with a demo brewpub loaded. Use **Settings > Start empty** when you are
 
 **Utilities and wastage.** Electricity, water, fuel and CO2 for COGS. Beer written off.
 
-**Reports.** Business (revenue, COGS per litre, margin), production, consumption, dispatch, stock position, recipe versus batch with brewhouse and volume efficiency, and batch quality.
+**Reports.** Business (revenue, COGS per litre, margin), production, consumption, dispatch, stock position, batch quality plus recipe versus batch with brewhouse and volume efficiency.
 
 **Excise and tax.** Excise register booked when a batch is marked Ready, plus a monthly VAT and GST summary.
 
